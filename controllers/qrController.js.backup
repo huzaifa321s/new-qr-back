@@ -1,0 +1,402 @@
+const QRCode = require('qrcode');
+const { createCanvas, loadImage, registerFont } = require('canvas');
+const sharp = require('sharp');
+const QRCodeModel = require('../models/QRCode');
+const shortid = require('shortid');
+const geoip = require('geoip-lite');
+
+// Helper to draw rounded rect
+function drawRoundedRect(ctx, x, y, width, height, radius, fill, stroke) {
+    if (typeof stroke === 'undefined') {
+        stroke = true;
+    }
+    if (typeof radius === 'undefined') {
+        radius = 5;
+    }
+    if (typeof radius === 'number') {
+        radius = { tl: radius, tr: radius, br: radius, bl: radius };
+    } else {
+        var defaultRadius = { tl: 0, tr: 0, br: 0, bl: 0 };
+        for (var side in defaultRadius) {
+            radius[side] = radius[side] || defaultRadius[side];
+        }
+    }
+    ctx.beginPath();
+    ctx.moveTo(x + radius.tl, y);
+    ctx.lineTo(x + width - radius.tr, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
+    ctx.lineTo(x + width, y + height - radius.br);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
+    ctx.lineTo(x + radius.bl, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
+    ctx.lineTo(x, y + radius.tl);
+    ctx.quadraticCurveTo(x, y, x + radius.tl, y);
+    ctx.closePath();
+    if (fill) {
+        ctx.fill();
+    }
+    if (stroke) {
+        ctx.stroke();
+    }
+}
+
+exports.generateQR = async (req, res) => {
+    try {
+        const { type, data, design } = req.body;
+
+        // 1. Construct content
+        let content = '';
+        if (type === 'url' || type === 'text') content = data;
+        else if (type === 'wifi') content = `WIFI:S:${data.ssid};T:${data.encryption};P:${data.password};;`;
+        else if (type === 'email') content = `mailto:${data.email}?subject=${data.subject}&body=${data.body}`;
+        else if (type === 'vcard') {
+            content = `BEGIN:VCARD\nVERSION:3.0\nN:${data.lastName};${data.firstName}\nFN:${data.firstName} ${data.lastName}\nORG:${data.org}\nTITLE:${data.title}\nTEL;TYPE=WORK,VOICE:${data.workPhone}\nTEL;TYPE=CELL,VOICE:${data.mobilePhone}\nEMAIL:${data.email}\nEND:VCARD`;
+        }
+
+        // 2. Get Raw QR Data
+        const qrData = QRCode.create(content, { errorCorrectionLevel: 'H' });
+        const modules = qrData.modules.data;
+        const size = qrData.modules.size;
+
+        // 3. Canvas Setup
+        const moduleSize = 20; // Pixel size per module
+        const margin = 4 * moduleSize;
+        const canvasSize = (size * moduleSize) + (2 * margin);
+        const canvas = createCanvas(canvasSize, canvasSize);
+        const ctx = canvas.getContext('2d');
+
+        // Background
+        ctx.fillStyle = design?.color?.light || '#ffffff';
+        ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+        // 4. Draw Modules (Dots/Squares)
+        ctx.fillStyle = design?.color?.dark || '#000000';
+        const dotStyle = design?.dots?.style || 'square';
+
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                if (modules[r * size + c]) {
+                    const x = margin + (c * moduleSize);
+                    const y = margin + (r * moduleSize);
+
+                    // Finder Patterns (Top-Left, Top-Right, Bottom-Left) detection
+                    // 7x7 squares at (0,0), (size-7, 0), (0, size-7)
+                    const isFinder = (r < 7 && c < 7) || (r < 7 && c >= size - 7) || (r >= size - 7 && c < 7);
+
+                    if (isFinder) {
+                        // We can handle finder patterns separately if needed, for now draw as square or custom
+                        ctx.fillRect(x, y, moduleSize, moduleSize);
+                    } else {
+                        if (dotStyle === 'dots') {
+                            ctx.beginPath();
+                            ctx.arc(x + moduleSize / 2, y + moduleSize / 2, moduleSize / 2, 0, Math.PI * 2);
+                            ctx.fill();
+                        } else if (dotStyle === 'rounded') {
+                            // Rounded rectangle
+                            drawRoundedRect(ctx, x, y, moduleSize, moduleSize, 5, true, false);
+                        } else {
+                            ctx.fillRect(x, y, moduleSize, moduleSize);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Logo Overlay
+        if (design?.logo?.url) {
+            try {
+                // In a real app, you'd fetch the URL. For now, assuming local or skipping if external URL fetching isn't set up
+                // const logo = await loadImage(design.logo.url);
+                // const logoSize = canvasSize * 0.2;
+                // const logoX = (canvasSize - logoSize) / 2;
+                // const logoY = (canvasSize - logoSize) / 2;
+                // ctx.drawImage(logo, logoX, logoY, logoSize, logoSize);
+            } catch (e) {
+                console.log("Error loading logo", e);
+            }
+        }
+
+        // 6. Frame Generation (if requested)
+        if (design?.frame?.style) {
+            // Create a larger canvas to hold the frame
+            const frameCanvas = createCanvas(canvasSize + 200, canvasSize + 200); // Arbitrary padding
+            const fCtx = frameCanvas.getContext('2d');
+
+            // Fill background
+            fCtx.fillStyle = '#ffffff';
+            fCtx.fillRect(0, 0, frameCanvas.width, frameCanvas.height);
+
+            // Draw Frame (Simple example)
+            fCtx.fillStyle = design.frame.color || '#000000';
+            // ... Draw frame logic here ...
+
+            // Draw QR on top
+            const qrX = (frameCanvas.width - canvasSize) / 2;
+            const qrY = (frameCanvas.height - canvasSize) / 2; // Adjust for text
+            fCtx.drawImage(canvas, qrX, qrY);
+
+            // Add Text
+            if (design.frame.text) {
+                fCtx.fillStyle = design.frame.textColor || '#ffffff';
+                fCtx.font = 'bold 30px sans-serif';
+                fCtx.textAlign = 'center';
+                fCtx.fillText(design.frame.text, frameCanvas.width / 2, qrY - 20);
+            }
+
+            // Output Frame Canvas
+            const buffer = frameCanvas.toBuffer('image/png');
+            res.set('Content-Type', 'image/png');
+            return res.send(buffer);
+        }
+
+        // Output Standard Canvas
+        const buffer = canvas.toBuffer('image/png');
+        res.set('Content-Type', 'image/png');
+        res.send(buffer);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Create Dynamic QR
+exports.createDynamicQR = async (req, res) => {
+    try {
+        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus } = req.body;
+
+        // Create DB Record
+        const newQR = new QRCodeModel({
+            type,
+            name,
+            data,
+            design,
+            businessInfo,
+            menu,
+            timings,
+            social,
+            isBusinessPage,
+            appLinks,
+            appStatus,
+            shortId: shortid.generate()
+        });
+
+        await newQR.save();
+
+        // Return the short URL
+        // If it's a business page, the URL should point to the frontend viewer
+        const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+        const shortUrl = isBusinessPage
+            ? `${baseUrl}/view/${newQR.shortId}` // Frontend route
+            : `${req.protocol}://${req.get('host')}/${newQR.shortId}`; // Backend redirect for normal URLs
+
+        res.json({ shortUrl, shortId: newQR.shortId });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Redirect Dynamic QR
+exports.redirectQR = async (req, res) => {
+    try {
+        const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
+
+        if (!qr) {
+            return res.status(404).send('QR Code not found');
+        }
+
+        // Analytics
+        const ip = req.clientIp || req.ip;
+        const userAgent = req.useragent;
+        const geo = geoip.lookup(ip);
+
+        const scanData = {
+            ip: ip,
+            device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+            os: userAgent ? userAgent.os : 'Unknown',
+            browser: userAgent ? userAgent.browser : 'Unknown',
+            location: geo ? `${geo.city}, ${geo.country}` : 'Unknown'
+        };
+
+        // Update scans
+        qr.scans.push(scanData);
+        qr.scanCount = (qr.scanCount || 0) + 1;
+        await qr.save();
+
+        // Redirect based on type
+        if (qr.type === 'url') {
+            return res.redirect(qr.data);
+        } else if (qr.type === 'text') {
+            return res.send(qr.data);
+        }
+
+        // For other types, you might show a landing page
+        res.json(qr.data);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Update QR (Editable)
+exports.updateQR = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data, design } = req.body;
+
+        const qr = await QRCodeModel.findById(id);
+        if (!qr) return res.status(404).send('QR Code not found');
+
+        if (data) qr.data = data;
+        if (design) qr.design = design;
+        if (req.body.name) qr.name = req.body.name;
+        if (req.body.businessInfo) qr.businessInfo = req.body.businessInfo;
+        if (req.body.menu) qr.menu = req.body.menu;
+        if (req.body.timings) qr.timings = req.body.timings;
+        if (req.body.social) qr.social = req.body.social;
+        if (req.body.appLinks) qr.appLinks = req.body.appLinks;
+        if (req.body.appStatus) qr.appStatus = req.body.appStatus;
+
+        await qr.save();
+        res.json(qr);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Get Single QR (for Landing Page)
+exports.getQR = async (req, res) => {
+    try {
+        const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
+        if (!qr) return res.status(404).send('QR Not Found');
+        res.json(qr);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// List all QR codes
+exports.listQRs = async (req, res) => {
+    try {
+        const qrs = await QRCodeModel.find().sort({ createdAt: -1 });
+        res.json(qrs);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Download stored QR code
+exports.downloadStoredQR = async (req, res) => {
+    try {
+        const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
+        if (!qr) return res.status(404).send('QR Code not found');
+
+        const { type, data, design } = qr;
+
+        let content = '';
+        if (type === 'url' || type === 'text') content = data;
+        if (qr.isDynamic || ['app-store', 'business-page'].includes(type)) {
+            const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
+            content = `${baseUrl}/${qr.shortId}`;
+        }
+
+        const qrData = QRCode.create(content, { errorCorrectionLevel: 'H', margin: 0 });
+        const modules = qrData.modules.data;
+        const moduleCount = qrData.modules.size;
+
+        const size = 280;
+        const margin = 20;
+        const drawingSize = size - (margin * 2);
+        const cellSize = drawingSize / moduleCount;
+
+        const canvas = createCanvas(size, size);
+        const ctx = canvas.getContext('2d');
+
+        // Background
+        ctx.fillStyle = design?.background?.color || '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+
+        // Helper to check if module is part of eye
+        const isEye = (r, c) => {
+            if (r < 7 && c < 7) return true;
+            if (r < 7 && c >= moduleCount - 7) return true;
+            if (r >= moduleCount - 7 && c < 7) return true;
+            return false;
+        };
+
+        // Draw body dots
+        ctx.fillStyle = design?.dots?.color || '#000000';
+        const dotStyle = design?.dots?.style || 'square';
+
+        for (let r = 0; r < moduleCount; r++) {
+            for (let c = 0; c < moduleCount; c++) {
+                if (modules[r * moduleCount + c] && !isEye(r, c)) {
+                    const x = margin + (c * cellSize);
+                    const y = margin + (r * cellSize);
+
+                    if (dotStyle === 'dots') {
+                        ctx.beginPath();
+                        ctx.arc(x + cellSize / 2, y + cellSize / 2, cellSize / 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (dotStyle === 'rounded') {
+                        const radius = cellSize * 0.25;
+                        ctx.beginPath();
+                        ctx.roundRect(x, y, cellSize, cellSize, radius);
+                        ctx.fill();
+                    } else if (dotStyle === 'extra-rounded') {
+                        const radius = cellSize * 0.5;
+                        ctx.beginPath();
+                        ctx.roundRect(x, y, cellSize, cellSize, radius);
+                        ctx.fill();
+                    } else if (dotStyle === 'classy') {
+                        ctx.beginPath();
+                        ctx.moveTo(x + cellSize / 2, y);
+                        ctx.lineTo(x + cellSize, y + cellSize / 2);
+                        ctx.lineTo(x + cellSize / 2, y + cellSize);
+                        ctx.lineTo(x, y + cellSize / 2);
+                        ctx.closePath();
+                        ctx.fill();
+                    } else {
+                        ctx.fillRect(x, y, cellSize, cellSize);
+                        const logoX = (size - logoSize) / 2;
+                        const logoY = (size - logoSize) / 2;
+
+                        if (design.image.hideBackgroundDots) {
+                            ctx.fillStyle = design?.background?.color || '#ffffff';
+                            ctx.fillRect(logoX - 5, logoY - 5, logoSize + 10, logoSize + 10);
+                        }
+
+                        ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
+                    } catch (err) {
+                        console.error('Logo load error:', err);
+                    }
+                }
+
+                const buffer = canvas.toBuffer('image/png');
+                res.set('Content-Type', 'image/png');
+                res.set('Content-Disposition', `attachment; filename="qr-${qr.shortId}.png"`);
+                res.send(buffer);
+
+            } catch (err) {
+                console.error(err);
+                res.status(500).send('Server Error');
+            }
+        };
+
+        // Delete QR
+        exports.deleteQR = async (req, res) => {
+            try {
+                const qr = await QRCodeModel.findByIdAndDelete(req.params.id);
+                if (!qr) return res.status(404).send('QR Not Found');
+                res.json({ success: true, message: 'QR Code deleted' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send('Server Error');
+            }
+        };
