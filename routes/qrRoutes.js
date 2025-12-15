@@ -30,6 +30,6 @@ router.delete('/:id', qrController.deleteQR);
 // @route   GET api/qr/:shortId/download
 // @desc    Download stored QR code image
 // @access  Public
-router.get('/:shortId/download', qrController.downloadStoredQR);
+router.get('/download/:shortId', qrController.downloadStoredQR);
 
 module.exports = router;

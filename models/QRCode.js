@@ -10,7 +10,7 @@ const QRCodeSchema = new mongoose.Schema({
             'app-store', 'menu', 'coupon', 'business-card', 'business-page',
             'bio-page', 'survey', 'lead-generation', 'rating', 'reviews',
             'social-media', 'pdf', 'multiple-links', 'password-protected',
-            'event', 'product-page', 'dynamic-url', 'video', 'image'
+            'event', 'product-page', 'dynamic-url', 'video', 'image', 'custom-type'
         ]
     },
     name: { type: String },
@@ -25,26 +25,102 @@ const QRCodeSchema = new mongoose.Schema({
     isDynamic: { type: Boolean, default: false },
     // Business Page Data
     isBusinessPage: { type: Boolean, default: false },
+    customComponents: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
+    basicInfo: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    rating: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    reviews: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    form: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    customFields: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
+    thankYou: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
     businessInfo: {
-        title: String,
-        subtitle: String,
-        description: String,
-        website: String,
-        email: String,
-        phone: String,
-        address: String
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
     },
     menu: {
         type: mongoose.Schema.Types.Mixed,
         default: {}
     },
+    openingHours: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
     timings: { type: mongoose.Schema.Types.Mixed },
     social: {
-        facebook: String,
-        instagram: String,
-        twitter: String,
-        linkedin: String,
-        website: String
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    links: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
+    infoFields: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
+    eventSchedule: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    venue: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    contactInfo: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    productContent: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    video: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    feedback: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    images: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
+    dynamicUrl: {
+        type: String, // Or Mixed, but usually string for simple redirect
+        default: ''
+    },
+    socialLinks: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
+    pdf: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    shareOption: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
     },
     appLinks: {
         google: String,
@@ -55,6 +131,26 @@ const QRCodeSchema = new mongoose.Schema({
         launchDate: Date,
         type: { type: String, enum: ['image', 'video'], default: 'image' },
         fileUrl: String
+    },
+    facilities: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    contact: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    personalInfo: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    exchange: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    coupon: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
     },
     shortId: {
         type: String,

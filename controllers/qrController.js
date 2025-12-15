@@ -317,7 +317,7 @@ exports.generateQR = async (req, res) => {
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
     try {
-        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents } = req.body;
+        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
 
         // Generate shortId first
         const shortId = shortid.generate();
@@ -328,7 +328,7 @@ exports.createDynamicQR = async (req, res) => {
 
         if (type === 'app-store') {
             qrContent = `${baseUrl}/app/${shortId}`;
-        } else if (type === 'menu' || type === 'business-page' || type === 'custom-type') {
+        } else if (type === 'menu' || type === 'business-page' || type === 'custom-type' || type === 'coupon' || type === 'business-card' || type === 'bio-page' || type === 'lead-generation' || type === 'rating' || type === 'reviews' || type === 'social-media' || type === 'pdf' || type === 'multiple-links' || type === 'password-protected' || type === 'event' || type === 'product-page' || type === 'video' || type === 'image') {
             qrContent = `${baseUrl}/view/${shortId}`;
         } else {
             const backendUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
@@ -349,6 +349,31 @@ exports.createDynamicQR = async (req, res) => {
             appLinks,
             appStatus,
             customComponents,
+            coupon,
+            facilities,
+            contact,
+            personalInfo,
+            exchange,
+            openingHours,
+            basicInfo,
+            form,
+            customFields,
+            thankYou,
+            rating,
+            reviews,
+            shareOption,
+            pdf,
+            links,
+            socialLinks,
+            infoFields,
+            eventSchedule,
+            venue,
+            contactInfo,
+            productContent,
+            video,
+            feedback,
+            images,
+            dynamicUrl,
             shortId: shortId
         });
 
@@ -421,14 +446,22 @@ exports.redirectQR = async (req, res) => {
         // Redirect based on type
         if (qr.type === 'url') {
             return res.redirect(qr.data);
+        } else if (qr.type === 'dynamic-url') {
+            return res.redirect(qr.dynamicUrl);
+        } else if (qr.type === 'video') {
+            if (qr.video && qr.video.redirect) {
+                return res.redirect(qr.video.url);
+            }
+            const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+            return res.redirect(`${baseUrl}/view/${qr.shortId}`);
         } else if (qr.type === 'text') {
             return res.send(qr.data);
         } else if (qr.type === 'app-store') {
             // Redirect to App Store landing page
             const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/app/${qr.shortId}`);
-        } else if (qr.type === 'business-page' || qr.type === 'menu' || qr.type === 'custom-type') {
-            // Redirect to Business Page / Menu / Custom Type landing
+        } else if (qr.type === 'business-page' || qr.type === 'menu' || qr.type === 'custom-type' || qr.type === 'coupon' || qr.type === 'business-card' || qr.type === 'bio-page' || qr.type === 'lead-generation' || qr.type === 'rating' || qr.type === 'reviews' || qr.type === 'social-media' || qr.type === 'pdf' || qr.type === 'multiple-links' || qr.type === 'password-protected' || qr.type === 'event' || qr.type === 'product-page' || qr.type === 'video' || qr.type === 'image') {
+            // Redirect to Business Page / Menu / Custom Type / Coupon / Business Card landing
             const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/view/${qr.shortId}`);
         }
@@ -446,7 +479,7 @@ exports.redirectQR = async (req, res) => {
 exports.updateQR = async (req, res) => {
     try {
         const { id } = req.params;
-        const { data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents } = req.body;
+        const { data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
 
         const qr = await QRCodeModel.findById(id);
         if (!qr) return res.status(404).send('QR Code not found');
@@ -468,6 +501,27 @@ exports.updateQR = async (req, res) => {
         if (personalInfo !== undefined) qr.personalInfo = personalInfo;
         if (coupon !== undefined) qr.coupon = coupon;
         if (customComponents !== undefined) qr.customComponents = customComponents;
+        if (exchange !== undefined) qr.exchange = exchange;
+        if (openingHours !== undefined) qr.openingHours = openingHours;
+        if (basicInfo !== undefined) qr.basicInfo = basicInfo;
+        if (form !== undefined) qr.form = form;
+        if (customFields !== undefined) qr.customFields = customFields;
+        if (thankYou !== undefined) qr.thankYou = thankYou;
+        if (rating !== undefined) qr.rating = rating;
+        if (reviews !== undefined) qr.reviews = reviews;
+        if (shareOption !== undefined) qr.shareOption = shareOption;
+        if (pdf !== undefined) qr.pdf = pdf;
+        if (links !== undefined) qr.links = links;
+        if (socialLinks !== undefined) qr.socialLinks = socialLinks;
+        if (infoFields !== undefined) qr.infoFields = infoFields;
+        if (eventSchedule !== undefined) qr.eventSchedule = eventSchedule;
+        if (venue !== undefined) qr.venue = venue;
+        if (contactInfo !== undefined) qr.contactInfo = contactInfo;
+        if (productContent !== undefined) qr.productContent = productContent;
+        if (video !== undefined) qr.video = video;
+        if (feedback !== undefined) qr.feedback = feedback;
+        if (images !== undefined) qr.images = images;
+        if (dynamicUrl !== undefined) qr.dynamicUrl = dynamicUrl;
 
         await qr.save();
 
@@ -551,22 +605,30 @@ exports.downloadStoredQR = async (req, res) => {
         const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
         if (!qr) return res.status(404).send('QR Code not found');
 
-        const { type, data, design } = qr;
+        const { type, design } = qr;
         const format = (req.query.format || 'png').toLowerCase();
 
-        // Resolve the actual content to encode
-        let content = data;
-        if (!content || content === 'https://placeholder.com') {
-            const isLocal = req.get('host').includes('localhost');
-            const frontendBase = isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
-            const backendBase = isLocal ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
+        // ✅ ALWAYS use frontend base for QR content
+        const isLocal = req.get('host').includes('localhost');
+        const frontendBase = isLocal
+            ? 'http://localhost:5173'
+            : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
 
-            if (type === 'app-store') content = `${frontendBase}/app/${qr.shortId}`;
-            else if (type === 'menu' || type === 'business-page') content = `${frontendBase}/view/${qr.shortId}`;
-            else content = `${backendBase}/${qr.shortId}`;
+        // ✅ Generate content based on type (ALWAYS frontend URLs)
+        let content;
+        if (type === 'app-store') {
+            content = `${frontendBase}/app/${qr.shortId}`;
+        } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
+            content = `${frontendBase}/view/${qr.shortId}`;
+        } else {
+            // Even for URL types, use frontend redirect
+            content = `${frontendBase}/r/${qr.shortId}`; // Frontend handles redirect
         }
 
-        // SVG path: use QRCode.toString (simpler, may not include all design shapes)
+        console.log('🔍 QR Content:', content);
+        console.log('📱 Type:', type);
+
+        // SVG generation
         if (format === 'svg') {
             const svgString = await QRCode.toString(content, {
                 type: 'svg',
@@ -575,36 +637,42 @@ exports.downloadStoredQR = async (req, res) => {
                     dark: design?.dots?.color || '#000000',
                     light: design?.background?.color || '#ffffff'
                 },
-                margin: 0
+                margin: 4 // ✅ Fixed
             });
             res.setHeader('Content-Type', 'image/svg+xml');
             res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.svg"`);
             return res.send(svgString);
         }
 
-        // Generate styled PNG buffer using existing helper; fallback to basic QR if styling fails
+        // PNG generation with fallback
         let pngBuffer;
         try {
             pngBuffer = await generateQRImageBuffer(content, design);
         } catch (genErr) {
-            console.error('QR buffer generation failed, falling back to basic QR:', genErr);
+            console.error('QR buffer generation failed, using basic QR:', genErr);
             pngBuffer = await QRCode.toBuffer(content, {
                 errorCorrectionLevel: 'H',
+                type: 'png',
+                margin: 4, // ✅ Fixed
+                width: 1000,
                 color: {
                     dark: design?.dots?.color || '#000000',
                     light: design?.background?.color || '#ffffff'
-                },
-                margin: 1
+                }
             });
         }
 
+        console.log('✅ Buffer generated:', pngBuffer.length, 'bytes');
+
+        // JPEG format
         if (format === 'jpeg' || format === 'jpg') {
-            const jpegBuffer = await sharp(pngBuffer).jpeg().toBuffer();
+            const jpegBuffer = await sharp(pngBuffer).jpeg({ quality: 95 }).toBuffer();
             res.setHeader('Content-Type', 'image/jpeg');
             res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.jpeg"`);
             return res.send(jpegBuffer);
         }
 
+        // PDF format
         if (format === 'pdf') {
             try {
                 const pdfBuffer = await sharp(pngBuffer).toFormat('pdf').toBuffer();
@@ -612,7 +680,7 @@ exports.downloadStoredQR = async (req, res) => {
                 res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.pdf"`);
                 return res.send(pdfBuffer);
             } catch (pdfErr) {
-                console.error('Sharp PDF failed, falling back to pdfkit:', pdfErr);
+                console.error('Sharp PDF failed, using pdfkit:', pdfErr);
                 const doc = new PDFDocument({ autoFirstPage: true, margin: 36 });
                 const chunks = [];
                 doc.on('data', (c) => chunks.push(c));
@@ -622,7 +690,6 @@ exports.downloadStoredQR = async (req, res) => {
                     res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.pdf"`);
                     res.send(outBuffer);
                 });
-                // Fit image within page with some padding
                 doc.image(pngBuffer, {
                     fit: [500, 700],
                     align: 'center',
