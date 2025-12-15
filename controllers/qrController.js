@@ -287,7 +287,7 @@ exports.generateQR = async (req, res) => {
         // 6. Save QR code to storage
         const buffer = canvas.toBuffer('image/png');
         const qrImageUrl = await uploadQRImage(buffer, `qr_${Date.now()}.png`);
-        
+
         // 7. Create QR code in database
         const qrCode = new QRCodeModel({
             type,
@@ -296,7 +296,7 @@ exports.generateQR = async (req, res) => {
             shortId: shortid.generate(),
             qrImageUrl: qrImageUrl
         });
-        
+
         await qrCode.save();
 
         // 8. Return the saved QR code data
@@ -317,7 +317,7 @@ exports.generateQR = async (req, res) => {
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
     try {
-        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus } = req.body;
+        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents } = req.body;
 
         // Generate shortId first
         const shortId = shortid.generate();
@@ -325,10 +325,10 @@ exports.createDynamicQR = async (req, res) => {
         // Generate actual QR URL based on type BEFORE saving
         const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
         let qrContent = '';
-        
+
         if (type === 'app-store') {
             qrContent = `${baseUrl}/app/${shortId}`;
-        } else if (type === 'menu' || type === 'business-page') {
+        } else if (type === 'menu' || type === 'business-page' || type === 'custom-type') {
             qrContent = `${baseUrl}/view/${shortId}`;
         } else {
             const backendUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
@@ -348,6 +348,7 @@ exports.createDynamicQR = async (req, res) => {
             isBusinessPage,
             appLinks,
             appStatus,
+            customComponents,
             shortId: shortId
         });
 
@@ -426,8 +427,8 @@ exports.redirectQR = async (req, res) => {
             // Redirect to App Store landing page
             const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/app/${qr.shortId}`);
-        } else if (qr.type === 'business-page') {
-            // Redirect to Business Page landing
+        } else if (qr.type === 'business-page' || qr.type === 'menu' || qr.type === 'custom-type') {
+            // Redirect to Business Page / Menu / Custom Type landing
             const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/view/${qr.shortId}`);
         }
@@ -445,7 +446,7 @@ exports.redirectQR = async (req, res) => {
 exports.updateQR = async (req, res) => {
     try {
         const { id } = req.params;
-        const { data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon } = req.body;
+        const { data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents } = req.body;
 
         const qr = await QRCodeModel.findById(id);
         if (!qr) return res.status(404).send('QR Code not found');
@@ -466,6 +467,7 @@ exports.updateQR = async (req, res) => {
         if (contact !== undefined) qr.contact = contact;
         if (personalInfo !== undefined) qr.personalInfo = personalInfo;
         if (coupon !== undefined) qr.coupon = coupon;
+        if (customComponents !== undefined) qr.customComponents = customComponents;
 
         await qr.save();
 
@@ -523,8 +525,8 @@ exports.listQRs = async (req, res) => {
         // Check if database is connected
         const mongoose = require('mongoose');
         if (mongoose.connection.readyState !== 1) {
-            return res.status(503).json({ 
-                error: 'Database not connected', 
+            return res.status(503).json({
+                error: 'Database not connected',
                 message: 'Please wait for database connection'
             });
         }
@@ -535,8 +537,8 @@ exports.listQRs = async (req, res) => {
     } catch (err) {
         console.error('Error fetching QR list:', err);
         console.error('Error stack:', err.stack);
-        res.status(500).json({ 
-            error: 'Server Error', 
+        res.status(500).json({
+            error: 'Server Error',
             message: err.message,
             details: err.toString()
         });
