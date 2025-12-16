@@ -4,13 +4,14 @@ const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
 const shortid = require('shortid');
 const geoip = require('geoip-lite');
+const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
 
 const SHAPES = {
     frame: {
         circle: "M25 5C13.95 5 5 13.95 5 25s8.95 20 20 20 20-8.95 20-20S36.05 5 25 5zm0 5c8.28 0 15 6.72 15 15s-6.72 15-15 15-15-6.72-15-15 6.72-15 15-15z",
-        square: "M5 5h40v40H5V5zm5 5v30h30V10H10z",
+        // square: REMOVED - Using strict geometry instead
         rounded: "M12 5h26c3.87 0 7 3.13 7 7v26c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V12c0-3.87 3.13-7 7-7zm0 5c-1.1 0-2 .9-2 2v26c0 1.1.9 2 2 2h26c1.1 0 2-.9 2-2V12c0-1.1-.9-2-2-2H12z",
         'leaf-top-right': "M12 5h26c3.87 0 7 3.13 7 7v26c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V12c0-3.87 3.13-7 7-7zM38 10h-7v5h7c1.1 0 2 .9 2 2v21c0 1.1-.9 2-2 2H12c-1.1 0-2-.9-2-2V12c0-1.1.9-2 2-2h19v-5H12c-1.1 0-2 .9-2 2v26c0 1.1.9 2 2 2h26c1.1 0 2-.9 2-2V12c0-1.1-.9-2-2-2z",
         'leaf-bottom-left': "M12 5h26c3.87 0 7 3.13 7 7v26c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V12c0-3.87 3.13-7 7-7zm0 35h7v-5h-7c-1.1 0-2-.9-2-2V12c0-1.1.9-2 2-2h26c1.1 0 2 .9 2 2v26c0 1.1-.9 2-2 2H19v5h19c1.1 0 2-.9 2-2V12c0-1.1-.9-2-2-2H12c-1.1 0-2 .9-2 2v21c0 1.1.9 2 2 2z",
@@ -22,7 +23,7 @@ const SHAPES = {
     },
     ball: {
         dot: "M25 10 A15 15 0 1 1 25 40 A15 15 0 1 1 25 10",
-        square: "M10 10h30v30H10z",
+        // square: REMOVED - Using strict geometry instead
         'extra-rounded': "M10 10h30c4.42 0 8 3.58 8 8v14c0 4.42-3.58 8-8 8H10c-4.42 0-8-3.58-8-8V18c0-4.42 3.58-8 8-8z",
         'leaf-1': "M10 25 Q10 10 25 10 L40 10 L40 25 Q40 40 25 40 L10 40 Z",
         'leaf-2': "M10 10 L25 10 Q40 10 40 25 L40 40 L25 40 Q10 40 10 25 Z",
@@ -75,13 +76,26 @@ async function generateQRImageBuffer(content, design) {
     const modules = qrData.modules.data;
     const moduleCount = qrData.modules.size;
 
-    const size = 512; // Higher resolution for storage
-    const margin = 40;
-    const drawingSize = size - (margin * 2);
-    const cellSize = drawingSize / moduleCount;
+    const size = 1024; // Increased resolution for better quality
+
+    // SAFE MARGIN CALCULATION
+    // Minimum 4 modules on each side as per QR spec
+    const safeModuleCount = moduleCount + 8;
+    const cellSize = size / safeModuleCount;
+    const margin = 4 * cellSize;
+
+    // We strictly use calculated cellSize to ensure full usage of canvas
+    // Canvas anti-aliasing will handle fractional pixels
 
     const canvas = createCanvas(size, size);
     const ctx = canvas.getContext('2d');
+
+    // Enable high quality image processing but DISABLE anti-aliasing for Sharpness
+    // QR codes should have crisp, sharp edges for scanners
+    ctx.quality = 'best';
+    ctx.patternQuality = 'best';
+    ctx.antialias = 'none'; // IMPORTANT: No anti-aliasing
+    ctx.imageSmoothingEnabled = false; // IMPORTANT: No smoothing
 
     // Background
     ctx.fillStyle = design?.background?.color || '#ffffff';
@@ -102,8 +116,12 @@ async function generateQRImageBuffer(content, design) {
     for (let r = 0; r < moduleCount; r++) {
         for (let c = 0; c < moduleCount; c++) {
             if (modules[r * moduleCount + c] && !isEye(r, c)) {
+                // Precise coordinate calculation using float
                 const x = margin + (c * cellSize);
                 const y = margin + (r * cellSize);
+
+                // Exact size, no overlaps needed without anti-aliasing
+                const drawSize = Math.ceil(cellSize);
 
                 if (dotStyle === 'dots') {
                     ctx.beginPath();
@@ -130,7 +148,7 @@ async function generateQRImageBuffer(content, design) {
                     ctx.closePath();
                     ctx.fill();
                 } else {
-                    ctx.fillRect(x, y, cellSize, cellSize);
+                    ctx.fillRect(x, y, drawSize, drawSize);
                 }
             }
         }
@@ -149,41 +167,159 @@ async function generateQRImageBuffer(content, design) {
         const frameStyle = design?.cornersSquare?.style || 'square';
         const ballStyle = design?.cornersDot?.style || 'dot';
 
-        // Helper to draw path
-        const drawPath = (pathStr, x, y, color, size) => {
-            ctx.save();
-            ctx.translate(x, y);
-            const scale = size / 50; // SVGs are 50x50
-            ctx.scale(scale, scale);
-            const p = new Path2D(pathStr);
+        // Helper to draw geometric shape
+        const drawGeometricEye = (type, style, x, y, size, color) => {
             ctx.fillStyle = color;
-            ctx.fill(p);
-            ctx.restore();
+            const center = size / 2;
+            const radius = size / 2;
+
+            ctx.beginPath();
+
+            if (style === 'circle' || style === 'dot') {
+                ctx.arc(x + center, y + center, radius, 0, Math.PI * 2);
+            } else if (style === 'rounded') {
+                // Moderate rounding
+                const r = size * 0.25;
+                if (ctx.roundRect) ctx.roundRect(x, y, size, size, r);
+                else ctx.rect(x, y, size, size); // Fallback
+            } else if (style === 'extra-rounded') {
+                // Heavy rounding
+                const r = size * 0.45;
+                if (ctx.roundRect) ctx.roundRect(x, y, size, size, r);
+                else ctx.rect(x, y, size, size);
+            } else if (style === 'dashed') {
+                // Dashed: 4 "L" shaped corners
+                // Outer size 7 modules, Inner 5 modules. Thickness 1 module.
+                // We simulate this by drawing 4 rects for the corners?
+                // No, "L" shapes.
+
+                const thickness = size / 7; // 1 module
+                const legLen = size * 0.35; // ~2.5 modules long (leaving 2m gap in middle)
+
+                // Top-Left L
+                ctx.fillRect(x, y, legLen, thickness); // Top bar
+                ctx.fillRect(x, y, thickness, legLen); // Left bar
+
+                // Top-Right L
+                ctx.fillRect(x + size - legLen, y, legLen, thickness); // Top bar
+                ctx.fillRect(x + size - thickness, y, thickness, legLen); // Right bar
+
+                // Bottom-Left L
+                ctx.fillRect(x, y + size - thickness, legLen, thickness); // Bottom bar
+                ctx.fillRect(x, y + size - legLen, thickness, legLen); // Left bar
+
+                // Bottom-Right L
+                ctx.fillRect(x + size - legLen, y + size - thickness, legLen, thickness); // Bottom bar
+                ctx.fillRect(x + size - thickness, y + size - legLen, thickness, legLen); // Right bar
+
+                // No fill() needed as we used fillRects
+                return;
+
+            } else if (style.startsWith('leaf') || style.startsWith('teardrop')) {
+                // Leaf logic: usually 2 opposite corners rounded
+                // Radius
+                const r = size * 0.4; // 40% rounding for leaf effect
+                let radii = [0, 0, 0, 0];
+
+                // Config based on standard Leaf rotations
+                // [TL, TR, BR, BL]
+                if (style === 'leaf-diag-1') radii = [r, 0, r, 0]; // TR & BL Sharp
+                else if (style === 'leaf-diag-2') radii = [0, r, 0, r]; // TL & BR Sharp
+                else if (style === 'teardrop-tl') radii = [0, r, r, r]; // TL Sharp
+                else if (style === 'leaf-top-right') radii = [r, 0, r, r]; // TR Sharp
+                else if (style === 'leaf-top-left') radii = [0, r, r, r]; // TL Sharp
+                else if (style === 'leaf-bottom-left') radii = [r, r, r, 0]; // BL Sharp
+                else if (style === 'leaf-bottom-right') radii = [r, r, 0, r]; // BR Sharp
+                else radii = [r, 0, r, 0];
+
+                if (ctx.roundRect) ctx.roundRect(x, y, size, size, radii);
+                else ctx.rect(x, y, size, size);
+            } else if (style === 'diamond') {
+                const mid = size / 2;
+                ctx.moveTo(x + mid, y);
+                ctx.lineTo(x + size, y + mid);
+                ctx.lineTo(x + mid, y + size);
+                ctx.lineTo(x, y + mid);
+                ctx.closePath();
+            } else if (style === 'star') {
+                const cx = x + size / 2;
+                const cy = y + size / 2;
+                const spikes = 5;
+                const outerRadius = size / 2;
+                const innerRadius = size / 4;
+                let rot = Math.PI / 2 * 3;
+                let px = cx;
+                let py = cy;
+                const step = Math.PI / spikes;
+
+                ctx.moveTo(cx, cy - outerRadius);
+                for (let i = 0; i < spikes; i++) {
+                    px = cx + Math.cos(rot) * outerRadius;
+                    py = cy + Math.sin(rot) * outerRadius;
+                    ctx.lineTo(px, py);
+                    rot += step;
+
+                    px = cx + Math.cos(rot) * innerRadius;
+                    py = cy + Math.sin(rot) * innerRadius;
+                    ctx.lineTo(px, py);
+                    rot += step;
+                }
+                ctx.lineTo(cx, cy - outerRadius);
+                ctx.closePath();
+            } else if (style === 'plus') {
+                const thickness = size / 3.5;
+                const offset = (size - thickness) / 2;
+                ctx.rect(x + offset, y, thickness, size); // V
+                ctx.rect(x, y + offset, size, thickness); // H
+            } else if (style === 'cross') {
+                // X shape
+                const thickness = size / 2.5; // Thicker for scannability
+                ctx.save();
+                ctx.translate(x + size / 2, y + size / 2);
+                ctx.rotate(45 * Math.PI / 180);
+                ctx.translate(-(x + size / 2), -(y + size / 2));
+                const offset = (size - thickness) / 2;
+                ctx.rect(x + offset, y, thickness, size);
+                ctx.rect(x, y + offset, size, thickness);
+                ctx.restore();
+            } else {
+                // Default Square (includes 'dot-frame' fallback)
+                ctx.rect(x, y, size, size);
+            }
+            ctx.fill();
         };
 
         // Draw Outer Frame
-        if (SHAPES.frame[frameStyle]) {
-            drawPath(SHAPES.frame[frameStyle], eyeX, eyeY, frameColor, eyeSize);
+        // -------------------------
+        ctx.fillStyle = frameColor;
+
+        // Handle "Dashed" separately because it doesn't need "Inner Cutout" logic
+        // (It's already drawn as thin lines)
+        if (frameStyle === 'dashed') {
+            drawGeometricEye('frame', frameStyle, eyeX, eyeY, eyeSize, frameColor);
+            // Dashed is already "hollow", no need to draw white inner box
         } else {
-            // Fallback
-            ctx.fillStyle = frameColor;
-            ctx.fillRect(eyeX, eyeY, eyeSize, eyeSize);
+            // Normal Frames (Solid block with hole)
+            drawGeometricEye('frame', frameStyle, eyeX, eyeY, eyeSize, frameColor);
+
+            // Inner cutout
             ctx.fillStyle = bgColor;
-            ctx.fillRect(eyeX + cellSize, eyeY + cellSize, 5 * cellSize, 5 * cellSize);
+            const innerSize = 5 * cellSize;
+            const innerOffset = cellSize;
+
+            // For Inner Cutout, we must match the outer style to create a uniform frame
+            // e.g. Rounded Outer -> Rounded Inner.
+            // But dashed doesn't get here.
+            drawGeometricEye('frame', frameStyle, eyeX + innerOffset, eyeY + innerOffset, innerSize, bgColor);
         }
+
 
         // Draw Inner Ball
-        const ballSize = 3 * cellSize;
-        const ballX = eyeX + 2 * cellSize;
-        const ballY = eyeY + 2 * cellSize;
+        // -------------------------
+        const ballSize = 3 * cellSize; // 3x3 modules
+        const ballOffset = 2 * cellSize; // 2 module offset
 
-        if (SHAPES.ball[ballStyle]) {
-            drawPath(SHAPES.ball[ballStyle], ballX, ballY, ballColor, ballSize);
-        } else {
-            // Fallback
-            ctx.fillStyle = ballColor;
-            ctx.fillRect(ballX, ballY, ballSize, ballSize);
-        }
+        drawGeometricEye('ball', ballStyle, eyeX + ballOffset, eyeY + ballOffset, ballSize, ballColor);
     };
 
     drawEye(0, 0);
@@ -192,20 +328,36 @@ async function generateQRImageBuffer(content, design) {
 
     // Add logo if exists
     if (design?.image?.url) {
+        console.log('🖼️ DATA CHECK - Logo URL present:', design.image.url);
         try {
-            const logoImage = await loadImage(design.image.url);
-            const logoSize = size * (design.imageOptions?.imageSize || design.image?.size || 0.2);
+            console.log('🖼️ Attempting to load logo for QR:', design.image.url);
+
+            // Robust fetch using axios (handles redirects, headers better than canvas.loadImage)
+            const logoResponse = await axios.get(design.image.url, { responseType: 'arraybuffer' });
+            const logoBuffer = Buffer.from(logoResponse.data);
+            const logoImage = await loadImage(logoBuffer);
+
+            // Clamp logo size to safe maximum (35% of QR width) to preserve scannability
+            // Default to 0.2 (20%) if not specified
+            const reqSize = design.imageOptions?.imageSize || design.image?.size || 0.2;
+            const safeSize = Math.min(Math.max(reqSize, 0.1), 0.35);
+
+            const logoSize = size * safeSize;
             const logoX = (size - logoSize) / 2;
             const logoY = (size - logoSize) / 2;
 
-            if (design.imageOptions?.hideBackgroundDots || design.image?.hideBackgroundDots) {
+            // Force clear background behind logo for better scannability
+            if (design.imageOptions?.hideBackgroundDots !== false) {
                 ctx.fillStyle = design?.background?.color || '#ffffff';
-                ctx.fillRect(logoX - 5, logoY - 5, logoSize + 10, logoSize + 10);
+                // Add padding
+                const clearPadding = 4;
+                ctx.fillRect(logoX - clearPadding, logoY - clearPadding, logoSize + (clearPadding * 2), logoSize + (clearPadding * 2));
             }
 
             ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
+            console.log(`✅ Logo drawn successfully (Size ratio: ${safeSize})`);
         } catch (err) {
-            // console.error('Logo load error:', err);
+            console.error('❌ Logo load/draw error:', err.message);
         }
     }
 
@@ -383,15 +535,16 @@ exports.createDynamicQR = async (req, res) => {
         try {
             const filename = `qr-codes/${newQR.shortId}-${Date.now()}.png`;
 
-            let imageBuffer;
-            if (req.body.qrImage) {
-                // Use provided client-side image
-                const base64Data = req.body.qrImage.replace(/^data:image\/\w+;base64,/, "");
-                imageBuffer = Buffer.from(base64Data, 'base64');
-            } else {
-                // Use the actual QR content URL we just set
-                imageBuffer = await generateQRImageBuffer(qrContent, design);
-            }
+            // ⚠️ IGNORE client-side 'qrImage' for Dynamic QRs where logic depends on new shortId
+            // The client cannot know the shortId or final URL during creation, so the image it sends
+            // likely contains a placeholder URL (e.g. /app/preview), which is WRONG.
+            // We MUST regenerate the image server-side with the correct 'qrContent'.
+
+            // if (req.body.qrImage) { ... }  <-- DISABLED on purpose
+
+            // Use the actual QR content URL we just set
+            console.log('🔄 Regenerating QR Image for creation to ensure correct URL:', qrContent);
+            imageBuffer = await generateQRImageBuffer(qrContent, design);
 
             const blobUrl = await uploadQRImage(imageBuffer, filename);
 
@@ -533,12 +686,14 @@ exports.updateQR = async (req, res) => {
                 const filename = `qr-codes/${qr.shortId}-${Date.now()}.png`;
 
                 let imageBuffer;
-                if (req.body.qrImage) {
-                    const base64Data = req.body.qrImage.replace(/^data:image\/\w+;base64,/, "");
-                    imageBuffer = Buffer.from(base64Data, 'base64');
-                } else {
-                    imageBuffer = await generateQRImageBuffer(qrContent, qr.design);
-                }
+                // ⚠️ IGNORE client-side 'qrImage' for Update as well
+                // We must ensure the DB stores the SCANNABLE, server-generated image, not the client preview.
+
+                // if (req.body.qrImage) { ... }  <-- DISABLED 
+
+                // Use the server-side generator with the robust fixes (margins, geometry, etc.)
+                console.log('🔄 Regenerating QR Image for UPDATE to ensure consistency:', qrContent);
+                imageBuffer = await generateQRImageBuffer(qrContent, qr.design);
 
                 const qrImageUrl = await uploadQRImage(imageBuffer, filename);
                 qr.qrImageUrl = qrImageUrl;
@@ -600,36 +755,37 @@ exports.listQRs = async (req, res) => {
 };
 
 // Download stored QR code (png/jpeg/svg/pdf)
+// Download stored QR code (png/jpeg/svg/pdf)
 exports.downloadStoredQR = async (req, res) => {
     try {
         const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
         if (!qr) return res.status(404).send('QR Code not found');
 
-        const { type, design } = qr;
+        const { type, design, qrImageUrl } = qr;
         const format = (req.query.format || 'png').toLowerCase();
 
-        // ✅ ALWAYS use frontend base for QR content
-        const isLocal = req.get('host').includes('localhost');
-        const frontendBase = isLocal
-            ? 'http://localhost:5173'
-            : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
-
-        // ✅ Generate content based on type (ALWAYS frontend URLs)
-        let content;
-        if (type === 'app-store') {
-            content = `${frontendBase}/app/${qr.shortId}`;
-        } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
-            content = `${frontendBase}/view/${qr.shortId}`;
-        } else {
-            // Even for URL types, use frontend redirect
-            content = `${frontendBase}/r/${qr.shortId}`; // Frontend handles redirect
-        }
-
-        console.log('🔍 QR Content:', content);
-        console.log('📱 Type:', type);
-
-        // SVG generation
+        // 1. Handle SVG separately (Vectors are usually re-generated as we don't store SVGs usually)
         if (format === 'svg') {
+            // ... (keep existing SVG logic if you want, or if you store SVG, fetch it)
+            // For now, regenerating SVG is safer for vector quality unless we stored it.
+            // But if consistency is key, and we only have PNG stored, we might not be able to give a perfect SVG of the *stored* PNG.
+            // Let's keep SVG regeneration for now as it creates vector graphics.
+
+            // Re-construct content for SVG generation
+            const isLocal = req.get('host').includes('localhost');
+            const frontendBase = isLocal
+                ? 'http://localhost:5173'
+                : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
+
+            let content;
+            if (type === 'app-store') {
+                content = `${frontendBase}/app/${qr.shortId}`;
+            } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
+                content = `${frontendBase}/view/${qr.shortId}`;
+            } else {
+                content = `${frontendBase}/r/${qr.shortId}`;
+            }
+
             const svgString = await QRCode.toString(content, {
                 type: 'svg',
                 errorCorrectionLevel: 'H',
@@ -637,36 +793,92 @@ exports.downloadStoredQR = async (req, res) => {
                     dark: design?.dots?.color || '#000000',
                     light: design?.background?.color || '#ffffff'
                 },
-                margin: 4 // ✅ Fixed
+                margin: 0
             });
             res.setHeader('Content-Type', 'image/svg+xml');
             res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.svg"`);
             return res.send(svgString);
         }
 
-        // PNG generation with fallback
+        // 2. Get the Base Image (Buffer)
         let pngBuffer;
-        try {
-            pngBuffer = await generateQRImageBuffer(content, design);
-        } catch (genErr) {
-            console.error('QR buffer generation failed, using basic QR:', genErr);
-            pngBuffer = await QRCode.toBuffer(content, {
-                errorCorrectionLevel: 'H',
-                type: 'png',
-                margin: 4, // ✅ Fixed
-                width: 1000,
-                color: {
-                    dark: design?.dots?.color || '#000000',
-                    light: design?.background?.color || '#ffffff'
+
+        if (qrImageUrl) {
+            try {
+                // Determine URL to fetch
+                let urlToFetch = qrImageUrl.trim();
+
+                // Ensure protocol
+                if (!urlToFetch.startsWith('http')) {
+                    // If it's a relative path, might need to handle, but usually it's absolute from blob storage
+                    // Assuming absolute for now based on user input
                 }
-            });
+
+                console.log('🔄 Fetching stored QR from:', urlToFetch);
+
+                // Fetch the stored image
+                const response = await axios.get(urlToFetch, {
+                    responseType: 'arraybuffer',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+                });
+
+                pngBuffer = Buffer.from(response.data);
+                console.log(`✅ Successfully fetched stored QR image (${pngBuffer.length} bytes)`);
+            } catch (fetchErr) {
+                console.error('❌ Failed to fetch stored QR image:', fetchErr.message);
+                if (fetchErr.response) {
+                    console.error('   Status:', fetchErr.response.status);
+                    console.error('   Headers:', fetchErr.response.headers);
+                }
+                // Fallback will trigger below
+            }
         }
 
-        console.log('✅ Buffer generated:', pngBuffer.length, 'bytes');
+        // Fallback: Regenerate if no stored image or fetch failed
+        if (!pngBuffer) {
+            console.log('⚠️ Regenerating QR image (Fallback)...');
+            const isLocal = req.get('host').includes('localhost');
+            const frontendBase = isLocal
+                ? 'http://localhost:5173'
+                : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
+
+            let content;
+            if (type === 'app-store') {
+                content = `${frontendBase}/app/${qr.shortId}`;
+            } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
+                content = `${frontendBase}/view/${qr.shortId}`;
+            } else {
+                content = `${frontendBase}/r/${qr.shortId}`;
+            }
+
+            try {
+                // Try to use the high-quality generator
+                pngBuffer = await generateQRImageBuffer(content, design);
+            } catch (genErr) {
+                console.error('High-quality generation failed, using basic QR:', genErr);
+                pngBuffer = await QRCode.toBuffer(content, {
+                    errorCorrectionLevel: 'H',
+                    type: 'png',
+                    margin: 4,
+                    width: 1000,
+                    color: {
+                        dark: design?.dots?.color || '#000000',
+                        light: design?.background?.color || '#ffffff'
+                    }
+                });
+            }
+        }
+
+        // 3. Convert if necessary (PNG is default)
 
         // JPEG format
         if (format === 'jpeg' || format === 'jpg') {
-            const jpegBuffer = await sharp(pngBuffer).jpeg({ quality: 95 }).toBuffer();
+            const jpegBuffer = await sharp(pngBuffer)
+                .flatten({ background: { r: 255, g: 255, b: 255 } }) // Ensure no transparency for JPG
+                .jpeg({ quality: 95 })
+                .toBuffer();
             res.setHeader('Content-Type', 'image/jpeg');
             res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.jpeg"`);
             return res.send(jpegBuffer);
@@ -680,7 +892,7 @@ exports.downloadStoredQR = async (req, res) => {
                 res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.pdf"`);
                 return res.send(pdfBuffer);
             } catch (pdfErr) {
-                console.error('Sharp PDF failed, using pdfkit:', pdfErr);
+                // Fallback to PDFKit if Sharp PDF fails (less likely now but good safety)
                 const doc = new PDFDocument({ autoFirstPage: true, margin: 36 });
                 const chunks = [];
                 doc.on('data', (c) => chunks.push(c));
@@ -700,7 +912,7 @@ exports.downloadStoredQR = async (req, res) => {
             }
         }
 
-        // Default PNG
+        // Default: PNG
         res.setHeader('Content-Type', 'image/png');
         res.setHeader('Content-Disposition', `attachment; filename="qr-${qr.shortId}.png"`);
         return res.send(pngBuffer);
