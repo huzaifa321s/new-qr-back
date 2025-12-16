@@ -475,17 +475,9 @@ exports.createDynamicQR = async (req, res) => {
         const shortId = shortid.generate();
 
         // Generate actual QR URL based on type BEFORE saving
-        const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
-        let qrContent = '';
-
-        if (type === 'app-store') {
-            qrContent = `${baseUrl}/app/${shortId}`;
-        } else if (type === 'menu' || type === 'business-page' || type === 'custom-type' || type === 'coupon' || type === 'business-card' || type === 'bio-page' || type === 'lead-generation' || type === 'rating' || type === 'reviews' || type === 'social-media' || type === 'pdf' || type === 'multiple-links' || type === 'password-protected' || type === 'event' || type === 'product-page' || type === 'video' || type === 'image') {
-            qrContent = `${baseUrl}/view/${shortId}`;
-        } else {
-            const backendUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
-            qrContent = `${backendUrl}/${shortId}`;
-        }
+        // Always use BACKEND URL for Dynamic QRs to ensure tracking
+        const backendUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
+        const qrContent = `${backendUrl}/${shortId}`;
 
         // Create DB Record with actual QR URL (not placeholder)
         const newQR = new QRCodeModel({
@@ -595,6 +587,15 @@ exports.redirectQR = async (req, res) => {
         qr.scans.push(scanData);
         qr.scanCount = (qr.scanCount || 0) + 1;
         await qr.save();
+
+        // Emit real-time update
+        if (req.io) {
+            req.io.emit('scan-updated', {
+                shortId: qr.shortId,
+                scanCount: qr.scanCount,
+                _id: qr._id
+            });
+        }
 
         // Redirect based on type
         if (qr.type === 'url') {

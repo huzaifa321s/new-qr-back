@@ -24,7 +24,7 @@ async function uploadQRImage(imageBuffer, filename) {
             // filename comes in as "qr-codes/shortid.png" usually.
             // We should make sure the directory exists if it has a path.
 
-            const filePath = path.join(__dirname, '..', 'public', filename);
+            const filePath = path.join(__dirname, '..', 'uploads', filename);
             const fileDir = path.dirname(filePath);
 
             if (!fs.existsSync(fileDir)) {
@@ -77,7 +77,7 @@ async function deleteQRImage(fileUrl) {
             // Let's try to parse it.
             const urlObj = new URL(fileUrl);
             const relativePath = urlObj.pathname.substring(1); // remove leading /
-            const filePath = path.join(__dirname, '..', 'public', relativePath);
+            const filePath = path.join(__dirname, '..', 'uploads', relativePath);
 
             if (fs.existsSync(filePath)) {
                 await fs.promises.unlink(filePath);
