@@ -475,9 +475,10 @@ exports.createDynamicQR = async (req, res) => {
         const shortId = shortid.generate();
 
         // Generate actual QR URL based on type BEFORE saving
-        // Always use BACKEND URL for Dynamic QRs to ensure tracking
-        const backendUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
-        const qrContent = `${backendUrl}/${shortId}`;
+        // Generate actual QR URL based on type BEFORE saving
+        // Always use FRONTEND URL for Dynamic QRs to ensure consistent mobile preview
+        const frontendUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+        const qrContent = `${frontendUrl}/view/${shortId}`;
 
         // Create DB Record with actual QR URL (not placeholder)
         const newQR = new QRCodeModel({
@@ -548,10 +549,8 @@ exports.createDynamicQR = async (req, res) => {
             // Continue even if upload fails - QR will render client-side
         }
 
-        // Return the short URL (reuse baseUrl from above)
-        const shortUrl = isBusinessPage
-            ? `${baseUrl}/view/${newQR.shortId}`
-            : `${req.protocol}://${req.get('host')}/${newQR.shortId}`;
+        // Return the short URL (reuse frontendUrl from above)
+        const shortUrl = `${frontendUrl}/view/${newQR.shortId}`;
 
         res.json({ shortUrl, shortId: newQR.shortId });
 
@@ -565,13 +564,17 @@ exports.createDynamicQR = async (req, res) => {
 exports.redirectQR = async (req, res) => {
     try {
         const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
-
+        console.log("qr/dynamic")
         if (!qr) {
             return res.status(404).send('QR Code not found');
         }
 
         // Analytics
-        const ip = req.clientIp || req.ip;
+        let ip = req.clientIp || req.ip;
+        if (ip && ip.includes(':') && ip.split(':').length === 2) {
+            ip = ip.split(':')[0];
+        }
+
         const userAgent = req.useragent;
         const geo = geoip.lookup(ip);
 
@@ -580,7 +583,7 @@ exports.redirectQR = async (req, res) => {
             device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
             os: userAgent ? userAgent.os : 'Unknown',
             browser: userAgent ? userAgent.browser : 'Unknown',
-            location: geo ? `${geo.city}, ${geo.country}` : 'Unknown'
+            location: (ip === '::1' || ip === '127.0.0.1') ? 'Karachi, Pakistan' : (geo ? `${geo.city}, ${geo.country}` : 'Unknown')
         };
 
         // Update scans
@@ -613,15 +616,62 @@ exports.redirectQR = async (req, res) => {
         } else if (qr.type === 'app-store') {
             // Redirect to App Store landing page
             const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
-            return res.redirect(`${baseUrl}/app/${qr.shortId}`);
+            return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         } else if (qr.type === 'business-page' || qr.type === 'menu' || qr.type === 'custom-type' || qr.type === 'coupon' || qr.type === 'business-card' || qr.type === 'bio-page' || qr.type === 'lead-generation' || qr.type === 'rating' || qr.type === 'reviews' || qr.type === 'social-media' || qr.type === 'pdf' || qr.type === 'multiple-links' || qr.type === 'password-protected' || qr.type === 'event' || qr.type === 'product-page' || qr.type === 'video' || qr.type === 'image') {
             // Redirect to Business Page / Menu / Custom Type / Coupon / Business Card landing
             const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
-            return res.redirect(`${baseUrl}/view/${qr.shortId}`);
+            return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         }
 
         // For other types, you might show a landing page
         res.json(qr.data);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Track Scan (for direct access)
+exports.trackScan = async (req, res) => {
+    try {
+        const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
+        if (!qr) {
+            return res.status(404).send('QR Code not found');
+        }
+        console.log('ssssss')
+        // Analytics
+        let ip = req.clientIp || req.ip;
+        if (ip && ip.includes(':') && ip.split(':').length === 2) {
+            ip = ip.split(':')[0];
+        }
+
+        const userAgent = req.useragent;
+        const geo = geoip.lookup(ip);
+
+        const scanData = {
+            ip: ip,
+            device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+            os: userAgent ? userAgent.os : 'Unknown',
+            browser: userAgent ? userAgent.browser : 'Unknown',
+            location: (ip === '::1' || ip === '127.0.0.1') ? 'Karachi, Pakistan' : (geo ? `${geo.city}, ${geo.country}` : 'Unknown')
+        };
+
+        // Update scans
+        qr.scans.push(scanData);
+        qr.scanCount = (qr.scanCount || 0) + 1;
+        await qr.save();
+
+        // Emit real-time update
+        if (req.io) {
+            req.io.emit('scan-updated', {
+                shortId: qr.shortId,
+                scanCount: qr.scanCount,
+                _id: qr._id
+            });
+        }
+
+        res.json({ success: true, scanCount: qr.scanCount });
 
     } catch (err) {
         console.error(err);
@@ -682,8 +732,8 @@ exports.updateQR = async (req, res) => {
         // Regenerate QR image if design changed
         if (design) {
             try {
-                const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:3000' : `${req.protocol}://${req.get('host')}`;
-                const qrContent = `${baseUrl}/${qr.shortId}`;
+                const frontendUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+                const qrContent = `${frontendUrl}/view/${qr.shortId}`;
                 const filename = `qr-codes/${qr.shortId}-${Date.now()}.png`;
 
                 let imageBuffer;
@@ -713,6 +763,18 @@ exports.updateQR = async (req, res) => {
         res.json(qr);
     } catch (err) {
         console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
+// Get Single QR by ID (for Statistics)
+exports.getQRById = async (req, res) => {
+    try {
+        const qr = await QRCodeModel.findById(req.params.id);
+        if (!qr) return res.status(404).json({ msg: 'QR Code not found' });
+        res.json(qr);
+    } catch (err) {
+        if (err.kind === 'ObjectId') return res.status(404).json({ msg: 'QR Code not found' });
         res.status(500).send('Server Error');
     }
 };

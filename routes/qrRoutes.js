@@ -22,6 +22,16 @@ router.put('/:id', qrController.updateQR);
 // @access  Public
 router.get('/:shortId', qrController.getQR);
 
+// @route   GET api/qr/detail/:id
+// @desc    Get single QR by Mongo ID
+// @access  Public
+router.get('/detail/:id', qrController.getQRById);
+
+// @route   POST api/qr/scan/:shortId
+// @desc    Track QR scan (direct access)
+// @access  Public
+router.post('/scan/:shortId', qrController.trackScan);
+
 // @route   DELETE api/qr/:id
 // @desc    Delete QR code
 // @access  Public
