@@ -791,7 +791,7 @@ exports.getQR = async (req, res) => {
     }
 };
 
-// List all QR codes
+// List all QR codes with pagination and filters
 exports.listQRs = async (req, res) => {
     try {
         // Check if database is connected
@@ -803,9 +803,86 @@ exports.listQRs = async (req, res) => {
             });
         }
 
-        const qrs = await QRCodeModel.find().sort({ createdAt: -1 }).lean();
-        console.log(`Fetched ${qrs.length} QR codes`);
-        res.json(qrs);
+        // Pagination parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
+
+        // Filter parameters
+        const { type, search, startDate, endDate, sort, tab } = req.query;
+
+        // Build query
+        let query = {};
+
+        // Type filter
+        if (type && type !== 'All types') {
+            query.type = type;
+        }
+
+        // Tab filter (Dynamic/Static)
+        if (tab && tab !== 'All') {
+            if (tab === 'Dynamic') {
+                query.type = { $in: ['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image', 'app-store'] };
+            } else if (tab === 'Static') {
+                query.type = { $in: ['url', 'text', 'email', 'phone', 'sms', 'wifi', 'vcard'] };
+            }
+        }
+
+        // Search filter
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { shortId: { $regex: search, $options: 'i' } },
+                { data: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Date range filter
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) {
+                query.createdAt.$gte = new Date(startDate);
+            }
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                query.createdAt.$lte = end;
+            }
+        }
+
+        // Sort options
+        let sortOption = { createdAt: -1 }; // Default: Last Created
+        if (sort === 'First Created') {
+            sortOption = { createdAt: 1 };
+        } else if (sort === 'Most Scanned') {
+            sortOption = { scanCount: -1 };
+        } else if (sort === 'Last 30 Days') {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            query.createdAt = { ...query.createdAt, $gte: thirtyDaysAgo };
+        }
+
+        // Get total count for pagination with filters
+        const total = await QRCodeModel.countDocuments(query);
+
+        // Fetch QR codes with pagination and filters
+        const qrs = await QRCodeModel.find(query)
+            .sort(sortOption)
+            .skip(skip)
+            .limit(limit)
+            .lean();
+
+        console.log(`Fetched ${qrs.length} QR codes (Page ${page}, Limit ${limit}, Total: ${total})`);
+
+        res.json({
+            qrs,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
+        });
     } catch (err) {
         console.error('Error fetching QR list:', err);
         console.error('Error stack:', err.stack);

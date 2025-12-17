@@ -6,7 +6,18 @@ const qrController = require('./controllers/qrController');
 const requestIp = require('request-ip');
 const useragent = require('express-useragent');
 
+const http = require('http'); // Import http
+const { Server } = require('socket.io'); // Import Socket.IO
+
 const app = express();
+const server = http.createServer(app); // Create HTTP server
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Allow all origins for dev
+        methods: ["GET", "POST"]
+    }
+});
+
 const port = process.env.PORT || 3000;
 
 // Connect Database
@@ -20,6 +31,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(requestIp.mw());
 app.use(useragent.express());
+
+// Attach io to req
+app.use((req, res, next) => {
+    req.io = io;
+    next();
+});
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
@@ -36,6 +53,6 @@ app.get('/', (req, res) => {
     res.send('QR Code Generator API is running');
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
