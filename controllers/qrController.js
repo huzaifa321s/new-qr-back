@@ -469,15 +469,16 @@ exports.generateQR = async (req, res) => {
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
     try {
-        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
+        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit } = req.body;
 
         // Generate shortId first
         const shortId = shortid.generate();
 
         // Generate actual QR URL based on type BEFORE saving
         // Generate actual QR URL based on type BEFORE saving
+        // Generate actual QR URL based on type BEFORE saving
         // Always use FRONTEND URL for Dynamic QRs to ensure consistent mobile preview
-        const frontendUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+        const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
         const qrContent = `${frontendUrl}/view/${shortId}`;
 
         // Create DB Record with actual QR URL (not placeholder)
@@ -519,7 +520,12 @@ exports.createDynamicQR = async (req, res) => {
             feedback,
             images,
             dynamicUrl,
-            shortId: shortId
+            dynamicUrl,
+            shortId: shortId,
+            password,
+            passwordExpiry,
+            scanLimitEnabled,
+            scanLimit
         });
 
         await newQR.save();
@@ -609,17 +615,17 @@ exports.redirectQR = async (req, res) => {
             if (qr.video && qr.video.redirect) {
                 return res.redirect(qr.video.url);
             }
-            const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+            const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/view/${qr.shortId}`);
         } else if (qr.type === 'text') {
             return res.send(qr.data);
         } else if (qr.type === 'app-store') {
             // Redirect to App Store landing page
-            const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+            const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         } else if (qr.type === 'business-page' || qr.type === 'menu' || qr.type === 'custom-type' || qr.type === 'coupon' || qr.type === 'business-card' || qr.type === 'bio-page' || qr.type === 'lead-generation' || qr.type === 'rating' || qr.type === 'reviews' || qr.type === 'social-media' || qr.type === 'pdf' || qr.type === 'multiple-links' || qr.type === 'password-protected' || qr.type === 'event' || qr.type === 'product-page' || qr.type === 'video' || qr.type === 'image') {
             // Redirect to Business Page / Menu / Custom Type / Coupon / Business Card landing
-            const baseUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
+            const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
             return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         }
 
@@ -638,6 +644,15 @@ exports.trackScan = async (req, res) => {
         const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
         if (!qr) {
             return res.status(404).send('QR Code not found');
+        }
+
+        // Check Expiry
+        if (qr.passwordExpiry && new Date() > new Date(qr.passwordExpiry)) {
+            return res.status(410).json({ error: 'QR Code has expired' });
+        }
+        // Check Scan Limit
+        if (qr.scanLimitEnabled && qr.scanLimit && qr.scanCount >= qr.scanLimit) {
+            return res.status(410).json({ error: 'Scan limit reached' });
         }
         console.log('ssssss')
         // Analytics
@@ -683,15 +698,30 @@ exports.trackScan = async (req, res) => {
 exports.updateQR = async (req, res) => {
     try {
         const { id } = req.params;
-        const { data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
+        const { shortId, data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
 
         const qr = await QRCodeModel.findById(id);
         if (!qr) return res.status(404).send('QR Code not found');
 
         const oldImageUrl = qr.qrImageUrl;
+        const oldShortId = qr.shortId;
+        const isShortIdChanged = shortId && shortId !== oldShortId;
 
-        // Update all fields properly
-        if (data !== undefined) qr.data = data;
+        // 1. Uniqueness check for new shortId
+        if (isShortIdChanged) {
+            const existing = await QRCodeModel.findOne({ shortId });
+            if (existing) {
+                return res.status(400).json({ message: 'Short ID already exists' });
+            }
+            qr.shortId = shortId;
+
+            // Update the redirect link if it's a dynamic QR
+            const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+            qr.data = `${frontendUrl}/view/${shortId}`;
+        }
+
+        // 2. Update other fields
+        if (data !== undefined && !isShortIdChanged) qr.data = data;
         if (design !== undefined) qr.design = design;
         if (req.body.name !== undefined) qr.name = req.body.name;
         if (businessInfo !== undefined) qr.businessInfo = businessInfo;
@@ -726,35 +756,31 @@ exports.updateQR = async (req, res) => {
         if (feedback !== undefined) qr.feedback = feedback;
         if (images !== undefined) qr.images = images;
         if (dynamicUrl !== undefined) qr.dynamicUrl = dynamicUrl;
+        if (req.body.password !== undefined) qr.password = req.body.password;
+        if (req.body.passwordExpiry !== undefined) qr.passwordExpiry = req.body.passwordExpiry;
+        if (req.body.scanLimitEnabled !== undefined) qr.scanLimitEnabled = req.body.scanLimitEnabled;
+        if (req.body.scanLimit !== undefined) qr.scanLimit = req.body.scanLimit;
 
         await qr.save();
 
-        // Regenerate QR image if design changed
-        if (design) {
+        // 3. Regenerate QR image if design OR shortId changed
+        if (design || isShortIdChanged) {
             try {
-                const frontendUrl = req.get('host').includes('localhost') ? 'http://localhost:5173' : `${req.protocol}://${req.get('host')}`;
-                const qrContent = `${frontendUrl}/view/${qr.shortId}`;
+                const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+                const qrContent = qr.data; // Contains the view URL
                 const filename = `qr-codes/${qr.shortId}-${Date.now()}.png`;
 
-                let imageBuffer;
-                // ⚠️ IGNORE client-side 'qrImage' for Update as well
-                // We must ensure the DB stores the SCANNABLE, server-generated image, not the client preview.
-
-                // if (req.body.qrImage) { ... }  <-- DISABLED 
-
-                // Use the server-side generator with the robust fixes (margins, geometry, etc.)
-                console.log('🔄 Regenerating QR Image for UPDATE to ensure consistency:', qrContent);
-                imageBuffer = await generateQRImageBuffer(qrContent, qr.design);
+                console.log('🔄 Regenerating QR Image for UPDATE:', qrContent);
+                const imageBuffer = await generateQRImageBuffer(qrContent, qr.design);
 
                 const qrImageUrl = await uploadQRImage(imageBuffer, filename);
                 qr.qrImageUrl = qrImageUrl;
                 await qr.save();
 
-                // Delete old image if exists and it's different from the new one
+                // Delete old image if it's different
                 if (oldImageUrl && oldImageUrl !== qrImageUrl) {
                     await deleteQRImage(oldImageUrl);
                 }
-                await qr.save();
             } catch (uploadError) {
                 console.error('Error regenerating QR image:', uploadError);
             }
@@ -784,6 +810,16 @@ exports.getQR = async (req, res) => {
     try {
         const qr = await QRCodeModel.findOne({ shortId: req.params.shortId });
         if (!qr) return res.status(404).send('QR Not Found');
+
+        // Check Expiry
+        if (qr.passwordExpiry && new Date() > new Date(qr.passwordExpiry)) {
+            return res.status(410).send('QR Code has expired');
+        }
+        // Check Scan Limit
+        if (qr.scanLimitEnabled && qr.scanLimit && qr.scanCount >= qr.scanLimit) {
+            return res.status(410).send('Scan limit reached');
+        }
+
         res.json(qr);
     } catch (err) {
         console.error(err);

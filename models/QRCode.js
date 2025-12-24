@@ -174,6 +174,10 @@ const QRCodeSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    password: { type: String, default: null },
+    passwordExpiry: { type: Date, default: null },
+    scanLimitEnabled: { type: Boolean, default: false },
+    scanLimit: { type: Number, default: null },
     createdAt: {
         type: Date,
         default: Date.now
