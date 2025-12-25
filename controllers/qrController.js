@@ -628,17 +628,17 @@ exports.redirectQR = async (req, res) => {
             if (qr.video && qr.video.redirect) {
                 return res.redirect(qr.video.url);
             }
-            const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+            const baseUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
             return res.redirect(`${baseUrl}/view/${qr.shortId}`);
         } else if (qr.type === 'text') {
             return res.send(qr.data);
         } else if (qr.type === 'app-store') {
             // Redirect to App Store landing page
-            const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+            const baseUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
             return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         } else if (qr.type === 'business-page' || qr.type === 'menu' || qr.type === 'custom-type' || qr.type === 'coupon' || qr.type === 'business-card' || qr.type === 'bio-page' || qr.type === 'lead-generation' || qr.type === 'rating' || qr.type === 'reviews' || qr.type === 'social-media' || qr.type === 'pdf' || qr.type === 'multiple-links' || qr.type === 'password-protected' || qr.type === 'event' || qr.type === 'product-page' || qr.type === 'video' || qr.type === 'image') {
             // Redirect to Business Page / Menu / Custom Type / Coupon / Business Card landing
-            const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+            const baseUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
             return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         }
 
@@ -975,9 +975,7 @@ exports.downloadStoredQR = async (req, res) => {
 
             // Re-construct content for SVG generation
             const isLocal = req.get('host').includes('localhost');
-            const frontendBase = isLocal
-                ? 'http://localhost:5173'
-                : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
+            const frontendBase = (process.env.FRONTEND_URL || (isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`)).replace(/\/$/, '');
 
             let content;
             if (type === 'app-store') {
@@ -1042,9 +1040,7 @@ exports.downloadStoredQR = async (req, res) => {
         if (!pngBuffer) {
             console.log('⚠️ Regenerating QR image (Fallback)...');
             const isLocal = req.get('host').includes('localhost');
-            const frontendBase = isLocal
-                ? 'http://localhost:5173'
-                : `${req.protocol}://${req.get('host').replace(':3000', '')}`;
+            const frontendBase = (process.env.FRONTEND_URL || (isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`)).replace(/\/$/, '');
 
             let content;
             if (type === 'app-store') {
