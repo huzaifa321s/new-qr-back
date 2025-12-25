@@ -3,7 +3,6 @@ const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
 const shortid = require('shortid');
-const geoip = require('geoip-lite');
 const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
@@ -582,14 +581,28 @@ exports.redirectQR = async (req, res) => {
         }
 
         const userAgent = req.useragent;
-        const geo = geoip.lookup(ip);
+
+        // Asynchronous geo lookup
+        let location = 'Unknown';
+        if (ip !== '::1' && ip !== '127.0.0.1') {
+            try {
+                const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
+                if (geoRes.data && geoRes.data.status === 'success') {
+                    location = `${geoRes.data.city}, ${geoRes.data.country}`;
+                }
+            } catch (geoErr) {
+                console.error('Geo lookup failed:', geoErr.message);
+            }
+        } else {
+            location = 'Karachi, Pakistan'; // Localhost fallback
+        }
 
         const scanData = {
             ip: ip,
             device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
             os: userAgent ? userAgent.os : 'Unknown',
             browser: userAgent ? userAgent.browser : 'Unknown',
-            location: (ip === '::1' || ip === '127.0.0.1') ? 'Karachi, Pakistan' : (geo ? `${geo.city}, ${geo.country}` : 'Unknown')
+            location: location
         };
 
         // Update scans
@@ -662,14 +675,28 @@ exports.trackScan = async (req, res) => {
         }
 
         const userAgent = req.useragent;
-        const geo = geoip.lookup(ip);
+
+        // Asynchronous geo lookup
+        let location = 'Unknown';
+        if (ip !== '::1' && ip !== '127.0.0.1') {
+            try {
+                const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
+                if (geoRes.data && geoRes.data.status === 'success') {
+                    location = `${geoRes.data.city}, ${geoRes.data.country}`;
+                }
+            } catch (geoErr) {
+                console.error('Geo lookup failed:', geoErr.message);
+            }
+        } else {
+            location = 'Karachi, Pakistan'; // Localhost fallback
+        }
 
         const scanData = {
             ip: ip,
             device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
             os: userAgent ? userAgent.os : 'Unknown',
             browser: userAgent ? userAgent.browser : 'Unknown',
-            location: (ip === '::1' || ip === '127.0.0.1') ? 'Karachi, Pakistan' : (geo ? `${geo.city}, ${geo.country}` : 'Unknown')
+            location: location
         };
 
         // Update scans
