@@ -477,7 +477,7 @@ exports.createDynamicQR = async (req, res) => {
         // Generate actual QR URL based on type BEFORE saving
         // Generate actual QR URL based on type BEFORE saving
         // Always use FRONTEND URL for Dynamic QRs to ensure consistent mobile preview
-        const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+        const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
         const qrContent = `${frontendUrl}/view/${shortId}`;
 
         // Create DB Record with actual QR URL (not placeholder)
@@ -932,8 +932,7 @@ exports.listQRs = async (req, res) => {
         const qrs = await QRCodeModel.find(query)
             .sort(sortOption)
             .skip(skip)
-            .limit(limit)
-            .lean();
+            .limit(limit);
 
         console.log(`Fetched ${qrs.length} QR codes (Page ${page}, Limit ${limit}, Total: ${total})`);
 

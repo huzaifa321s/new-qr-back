@@ -182,6 +182,19 @@ const QRCodeSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     }
+}, {
+    toJSON: { getters: true },
+    toObject: { getters: true }
+});
+
+// Dynamic Data Getter: Automatically fixes hardcoded URLs based on current environment
+QRCodeSchema.path('data').get(function (v) {
+    if (typeof v === 'string' && v.includes('/view/')) {
+        const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+        // Replace everything before /view/ with the current frontendUrl
+        return v.replace(/https?:\/\/[^\/]+/, frontendUrl);
+    }
+    return v;
 });
 
 module.exports = mongoose.model('QRCode', QRCodeSchema);
