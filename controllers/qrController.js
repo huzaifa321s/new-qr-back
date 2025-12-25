@@ -6,23 +6,24 @@ const shortid = require('shortid');
 const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
+const geoip = require('geoip-lite');
 
 // Helper to get client scan details (IP & Geo)
 const getScanDetails = async (req) => {
-    // 1. Get IP - Prioritize headers for proxies/deployment (Vercel)
-    let ip = req.headers['x-forwarded-for'] || req.clientIp || req.socket.remoteAddress || req.ip;
+    // 1. Get IP - Prioritize request-ip middleware's value
+    let ip = req.clientIp || req.headers['x-forwarded-for'] || req.ip;
 
     // Handle x-forwarded-for comma list (if any)
     if (ip && ip.includes(',')) {
         ip = ip.split(',')[0].trim();
     }
 
-    // Normalize IPv6-mapped IPv4 (::ffff:127.0.0.1 -> 127.0.0.1)
+    // Normalize IPv6 (::ffff:127.0.0.1 -> 127.0.0.1)
     if (ip && ip.startsWith('::ffff:')) {
         ip = ip.substring(7);
     }
 
-    // Remove port if present (mostly for local dev like 127.0.0.1:5173)
+    // Remove port if present
     if (ip && ip.includes(':') && !ip.includes('::')) {
         ip = ip.split(':')[0];
     }
@@ -30,26 +31,14 @@ const getScanDetails = async (req) => {
     const userAgent = req.useragent;
     let location = 'Unknown';
 
-    // 2. Try Deployment specific headers (Vercel)
-    const vercelCity = req.headers['x-vercel-ip-city'];
-    const vercelCountry = req.headers['x-vercel-ip-country'];
-
-    if (vercelCity || vercelCountry) {
-        const city = vercelCity ? decodeURIComponent(vercelCity) : 'Unknown';
-        const country = vercelCountry || 'Unknown';
-        location = `${city}, ${country}`;
-    } else if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
-        location = 'Karachi, Pakistan'; // Localhost fallback
-    } else {
-        // 3. Fallback to ip-api for other hosting
-        try {
-            const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
-            if (geoRes.data && geoRes.data.status === 'success') {
-                location = `${geoRes.data.city}, ${geoRes.data.country}`;
-            }
-        } catch (geoErr) {
-            console.error('Geo lookup failed:', geoErr.message);
+    // 2. Logic "geoip-lite"
+    if (ip && ip !== '::1' && ip !== '127.0.0.1' && ip !== 'localhost') {
+        const geo = geoip.lookup(ip);
+        if (geo) {
+            location = `${geo.city || 'Unknown'}, ${geo.country || 'Unknown'}`;
         }
+    } else {
+        location = 'Karachi, Pakistan'; // Localhost fallback
     }
 
     return {
