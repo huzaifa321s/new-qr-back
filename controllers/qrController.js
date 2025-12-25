@@ -7,6 +7,60 @@ const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
 
+// Helper to get client scan details (IP & Geo)
+const getScanDetails = async (req) => {
+    // 1. Get IP - Prioritize headers for proxies/deployment (Vercel)
+    let ip = req.headers['x-forwarded-for'] || req.clientIp || req.socket.remoteAddress || req.ip;
+
+    // Handle x-forwarded-for comma list (if any)
+    if (ip && ip.includes(',')) {
+        ip = ip.split(',')[0].trim();
+    }
+
+    // Normalize IPv6-mapped IPv4 (::ffff:127.0.0.1 -> 127.0.0.1)
+    if (ip && ip.startsWith('::ffff:')) {
+        ip = ip.substring(7);
+    }
+
+    // Remove port if present (mostly for local dev like 127.0.0.1:5173)
+    if (ip && ip.includes(':') && !ip.includes('::')) {
+        ip = ip.split(':')[0];
+    }
+
+    const userAgent = req.useragent;
+    let location = 'Unknown';
+
+    // 2. Try Deployment specific headers (Vercel)
+    const vercelCity = req.headers['x-vercel-ip-city'];
+    const vercelCountry = req.headers['x-vercel-ip-country'];
+
+    if (vercelCity || vercelCountry) {
+        const city = vercelCity ? decodeURIComponent(vercelCity) : 'Unknown';
+        const country = vercelCountry || 'Unknown';
+        location = `${city}, ${country}`;
+    } else if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
+        location = 'Karachi, Pakistan'; // Localhost fallback
+    } else {
+        // 3. Fallback to ip-api for other hosting
+        try {
+            const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
+            if (geoRes.data && geoRes.data.status === 'success') {
+                location = `${geoRes.data.city}, ${geoRes.data.country}`;
+            }
+        } catch (geoErr) {
+            console.error('Geo lookup failed:', geoErr.message);
+        }
+    }
+
+    return {
+        ip: ip || 'Unknown',
+        device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+        os: userAgent ? userAgent.os : 'Unknown',
+        browser: userAgent ? userAgent.browser : 'Unknown',
+        location: location
+    };
+};
+
 const SHAPES = {
     frame: {
         circle: "M25 5C13.95 5 5 13.95 5 25s8.95 20 20 20 20-8.95 20-20S36.05 5 25 5zm0 5c8.28 0 15 6.72 15 15s-6.72 15-15 15-15-6.72-15-15 6.72-15 15-15z",
@@ -575,35 +629,7 @@ exports.redirectQR = async (req, res) => {
         }
 
         // Analytics
-        let ip = req.clientIp || req.ip;
-        if (ip && ip.includes(':') && ip.split(':').length === 2) {
-            ip = ip.split(':')[0];
-        }
-
-        const userAgent = req.useragent;
-
-        // Asynchronous geo lookup
-        let location = 'Unknown';
-        if (ip !== '::1' && ip !== '127.0.0.1') {
-            try {
-                const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
-                if (geoRes.data && geoRes.data.status === 'success') {
-                    location = `${geoRes.data.city}, ${geoRes.data.country}`;
-                }
-            } catch (geoErr) {
-                console.error('Geo lookup failed:', geoErr.message);
-            }
-        } else {
-            location = 'Karachi, Pakistan'; // Localhost fallback
-        }
-
-        const scanData = {
-            ip: ip,
-            device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
-            os: userAgent ? userAgent.os : 'Unknown',
-            browser: userAgent ? userAgent.browser : 'Unknown',
-            location: location
-        };
+        const scanData = await getScanDetails(req);
 
         // Update scans
         qr.scans.push(scanData);
@@ -667,37 +693,8 @@ exports.trackScan = async (req, res) => {
         if (qr.scanLimitEnabled && qr.scanLimit && qr.scanCount >= qr.scanLimit) {
             return res.status(410).json({ error: 'Scan limit reached' });
         }
-        console.log('ssssss')
         // Analytics
-        let ip = req.clientIp || req.ip;
-        if (ip && ip.includes(':') && ip.split(':').length === 2) {
-            ip = ip.split(':')[0];
-        }
-
-        const userAgent = req.useragent;
-
-        // Asynchronous geo lookup
-        let location = 'Unknown';
-        if (ip !== '::1' && ip !== '127.0.0.1') {
-            try {
-                const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
-                if (geoRes.data && geoRes.data.status === 'success') {
-                    location = `${geoRes.data.city}, ${geoRes.data.country}`;
-                }
-            } catch (geoErr) {
-                console.error('Geo lookup failed:', geoErr.message);
-            }
-        } else {
-            location = 'Karachi, Pakistan'; // Localhost fallback
-        }
-
-        const scanData = {
-            ip: ip,
-            device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
-            os: userAgent ? userAgent.os : 'Unknown',
-            browser: userAgent ? userAgent.browser : 'Unknown',
-            location: location
-        };
+        const scanData = await getScanDetails(req);
 
         // Update scans
         qr.scans.push(scanData);
