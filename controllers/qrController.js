@@ -6,6 +6,7 @@ const shortid = require('shortid');
 const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
+const { default: waitForDbConnection } = require('../utils/waitDBConnection');
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
 
 // Helper to get client scan details (IP & Geo)
@@ -863,12 +864,8 @@ exports.listQRs = async (req, res) => {
         // Check if database is connected
         const mongoose = require('mongoose');
         if (mongoose.connection.readyState !== 1) {
-            return res.status(503).json({
-                error: 'Database not connected',
-                message: 'Please wait for database connection'
-            });
+            await waitForDbConnection(5000); // 5 seconds wait
         }
-
         // Pagination parameters
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
