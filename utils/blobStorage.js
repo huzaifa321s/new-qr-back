@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { put, del } = require('@vercel/blob');
 
 // Ensure uploads directory exists for local development
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -15,7 +16,7 @@ if (!fs.existsSync(UPLOAD_DIR)) {
  */
 async function uploadQRImage(imageBuffer, filename) {
     const mode = process.env.UPLOAD_MODE || 'prod'; // Default to prod if not set
-
+    console.log("mode", mode);
     if (mode === 'dev' || mode === 'local') {
         // --- LOCAL STORAGE MODE ---
         try {
