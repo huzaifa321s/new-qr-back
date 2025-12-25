@@ -6,39 +6,56 @@ const shortid = require('shortid');
 const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
-const geoip = require('geoip-lite');
+// geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
 
 // Helper to get client scan details (IP & Geo)
 const getScanDetails = async (req) => {
-    // 1. Get IP - Prioritize request-ip middleware's value
-    let ip = req.clientIp || req.headers['x-forwarded-for'] || req.ip;
+    // 1. Enhanced IP Detection (Crucial for Vercel/Proxies)
+    let ip = req.headers['x-forwarded-for'] || req.clientIp || req.socket.remoteAddress || req.ip;
 
-    // Handle x-forwarded-for comma list (if any)
+    // x-forwarded-for can be a comma-separated list, first one is the client
     if (ip && ip.includes(',')) {
         ip = ip.split(',')[0].trim();
     }
 
-    // Normalize IPv6 (::ffff:127.0.0.1 -> 127.0.0.1)
+    // Normalize IPv6-mapped IPv4
     if (ip && ip.startsWith('::ffff:')) {
         ip = ip.substring(7);
     }
 
-    // Remove port if present
+    // Clean up port from IPv4
     if (ip && ip.includes(':') && !ip.includes('::')) {
         ip = ip.split(':')[0];
     }
 
+    console.log('📍 New Scan Detected. Extracted IP:', ip);
+
     const userAgent = req.useragent;
     let location = 'Unknown';
 
-    // 2. Logic "geoip-lite"
-    if (ip && ip !== '::1' && ip !== '127.0.0.1' && ip !== 'localhost') {
-        const geo = geoip.lookup(ip);
-        if (geo) {
-            location = `${geo.city || 'Unknown'}, ${geo.country || 'Unknown'}`;
-        }
-    } else {
+    // 2. Professional Geolocation (Vercel Headers > External API)
+    const vercelCity = req.headers['x-vercel-ip-city'];
+    const vercelCountry = req.headers['x-vercel-ip-country'];
+
+    if (vercelCity || vercelCountry) {
+        // Vercel provided headers are 100% accurate for the actual visitor
+        const city = vercelCity ? decodeURIComponent(vercelCity) : 'Unknown';
+        const country = vercelCountry || 'Unknown';
+        location = `${city}, ${country}`;
+        console.log('🏢 Location from Vercel Headers:', location);
+    } else if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
         location = 'Karachi, Pakistan'; // Localhost fallback
+    } else {
+        // Fallback to External API if not on Vercel or headers missing
+        try {
+            const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
+            if (geoRes.data && geoRes.data.status === 'success') {
+                location = `${geoRes.data.city}, ${geoRes.data.country}`;
+                console.log('🌐 Location from ip-api.com:', location);
+            }
+        } catch (geoErr) {
+            console.error('Geo lookup error:', geoErr.message);
+        }
     }
 
     return {
