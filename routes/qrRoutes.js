@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 const qrController = require('../controllers/qrController');
 
-// @route   POST api/qr/dynamic
-// @desc    Create a dynamic QR code
+// @route   POST api/qr/static
+// @desc    Create a static QR code
 // @access  Public
-router.post('/dynamic', qrController.createDynamicQR);
+router.post('/static', qrController.createStaticQR);
 
 // @route   GET api/qr/list
 // @desc    List all QR codes

@@ -626,6 +626,46 @@ exports.createDynamicQR = async (req, res) => {
     }
 };
 
+// Create Static QR
+exports.createStaticQR = async (req, res) => {
+    try {
+        const { type, name, data, design } = req.body;
+
+        // For static QRs, the 'data' is the actual content (e.g. Website URL)
+        const shortId = shortid.generate();
+
+        const newQR = new QRCodeModel({
+            type, // Use provided type (e.g. 'website', 'text')
+            name,
+            data, // Direct data for static QRs
+            design,
+            isDynamic: false,
+            shortId: shortId
+        });
+
+        await newQR.save();
+
+        // Generate QR image and upload
+        try {
+            const filename = `qr-codes/static-${newQR.shortId}-${Date.now()}.png`;
+            // For static QR, image content is the direct data
+            const imageBuffer = await generateQRImageBuffer(data, design);
+            const blobUrl = await uploadQRImage(imageBuffer, filename);
+
+            newQR.qrImageUrl = blobUrl;
+            await newQR.save();
+        } catch (uploadError) {
+            console.error('Error uploading Static QR image:', uploadError);
+        }
+
+        res.json({ success: true, shortId: newQR.shortId });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+};
+
 // Redirect Dynamic QR
 exports.redirectQR = async (req, res) => {
     try {
@@ -887,7 +927,7 @@ exports.listQRs = async (req, res) => {
             if (tab === 'Dynamic') {
                 query.type = { $in: ['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image', 'app-store'] };
             } else if (tab === 'Static') {
-                query.type = { $in: ['url', 'text', 'email', 'phone', 'sms', 'wifi', 'vcard'] };
+                query.type = { $in: ['url', 'text', 'email', 'phone', 'sms', 'wifi', 'vcard', 'static', 'website', 'map'] };
             }
         }
 
@@ -978,7 +1018,9 @@ exports.downloadStoredQR = async (req, res) => {
             const frontendBase = (process.env.FRONTEND_URL || (isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`)).replace(/\/$/, '');
 
             let content;
-            if (type === 'app-store') {
+            if (qr.isDynamic === false) {
+                content = qr.data;
+            } else if (type === 'app-store') {
                 content = `${frontendBase}/app/${qr.shortId}`;
             } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
                 content = `${frontendBase}/view/${qr.shortId}`;
@@ -1043,7 +1085,9 @@ exports.downloadStoredQR = async (req, res) => {
             const frontendBase = (process.env.FRONTEND_URL || (isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`)).replace(/\/$/, '');
 
             let content;
-            if (type === 'app-store') {
+            if (qr.isDynamic === false) {
+                content = qr.data;
+            } else if (type === 'app-store') {
                 content = `${frontendBase}/app/${qr.shortId}`;
             } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
                 content = `${frontendBase}/view/${qr.shortId}`;

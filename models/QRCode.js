@@ -6,11 +6,11 @@ const QRCodeSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: [
-            'text', 'url', 'wifi', 'vcard', 'email', 'sms',
+            'text', 'url', 'wifi', 'vcard', 'email', 'sms', 'map', 'phone', 'website',
             'app-store', 'menu', 'coupon', 'business-card', 'business-page',
             'bio-page', 'survey', 'lead-generation', 'rating', 'reviews',
             'social-media', 'pdf', 'multiple-links', 'password-protected',
-            'event', 'product-page', 'dynamic-url', 'video', 'image', 'custom-type'
+            'event', 'product-page', 'dynamic-url', 'video', 'image', 'custom-type', 'static'
         ]
     },
     name: { type: String },
