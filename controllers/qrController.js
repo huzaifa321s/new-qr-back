@@ -6,7 +6,7 @@ const shortid = require('shortid');
 const axios = require('axios'); // Add axios
 const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
-const { default: waitForDbConnection } = require('../utils/waitDBConnection');
+const waitForDbConnection = require('../utils/waitDBConnection');
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
 
 // Helper to get client scan details (IP & Geo)

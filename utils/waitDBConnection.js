@@ -18,4 +18,4 @@ const waitForDbConnection = (timeout = 5000, interval = 100) => {
     });
 }
 
-export default waitForDbConnection
+module.exports = waitForDbConnection;
