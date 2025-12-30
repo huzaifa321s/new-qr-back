@@ -45,6 +45,7 @@ app.use('/uploads', express.static('uploads'));
 // Routes
 app.use('/api/qr', require('./routes/qrRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
+app.use('/api/ai', require('./routes/aiRoutes'));
 
 // Redirect Route
 app.get('/:shortId', qrController.redirectQR);
