@@ -144,6 +144,10 @@ const QRCodeSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.Mixed,
         default: {}
     },
+    categories: {
+        type: mongoose.Schema.Types.Mixed,
+        default: []
+    },
     exchange: {
         type: mongoose.Schema.Types.Mixed,
         default: {}

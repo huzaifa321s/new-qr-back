@@ -206,6 +206,7 @@ Return ONLY the JSON configuration for ${type ? type.toUpperCase() : 'the detect
 
         const jsonString = content.replace(/```json/g, '').replace(/```/g, '').trim();
         const config = JSON.parse(jsonString);
+        console.log('Generated Config:', JSON.stringify(config, null, 2));
 
         res.json({ success: true, data: config });
 

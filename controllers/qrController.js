@@ -529,7 +529,7 @@ exports.generateQR = async (req, res) => {
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
     try {
-        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit } = req.body;
+        const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit, categories } = req.body;
 
         // Generate shortId first
         const shortId = shortid.generate();
@@ -585,7 +585,8 @@ exports.createDynamicQR = async (req, res) => {
             password,
             passwordExpiry,
             scanLimitEnabled,
-            scanLimit
+            scanLimit,
+            categories: type === 'reviews' ? categories : []
         });
 
         await newQR.save();
@@ -831,6 +832,7 @@ exports.updateQR = async (req, res) => {
         if (req.body.passwordExpiry !== undefined) qr.passwordExpiry = req.body.passwordExpiry;
         if (req.body.scanLimitEnabled !== undefined) qr.scanLimitEnabled = req.body.scanLimitEnabled;
         if (req.body.scanLimit !== undefined) qr.scanLimit = req.body.scanLimit;
+        if (req.body.categories !== undefined && qr.type === 'reviews') qr.categories = req.body.categories;
 
         await qr.save();
 
