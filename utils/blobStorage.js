@@ -2,15 +2,27 @@ const fs = require('fs');
 const path = require('path');
 const { put, del } = require('@vercel/blob');
 
-// Ensure uploads directory and temp subdirectory exist
-const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
+// Detect if running on Vercel
+const isVercel = process.env.VERCEL === '1';
+
+// Base directory for uploads (Local vs Vercel /tmp)
+const UPLOAD_ROOT = isVercel
+    ? path.join('/tmp', 'uploads')
+    : path.join(__dirname, '..', 'uploads');
+
 const TEMP_DIR = path.join(UPLOAD_ROOT, 'temp');
 
-[UPLOAD_ROOT, TEMP_DIR].forEach(dir => {
+// Helper to ensure directory exists at runtime (Crucial for Vercel /tmp)
+function ensureDir(dir) {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
-});
+}
+
+// Initial check for local dev
+if (!isVercel) {
+    [UPLOAD_ROOT, TEMP_DIR].forEach(ensureDir);
+}
 
 /**
  * Save file strictly to local temporary storage
@@ -18,6 +30,7 @@ const TEMP_DIR = path.join(UPLOAD_ROOT, 'temp');
  */
 async function saveTemporary(imageBuffer, filename) {
     try {
+        ensureDir(TEMP_DIR); // Always ensure dir exists before writing in /tmp
         const filePath = path.join(TEMP_DIR, filename);
         await fs.promises.writeFile(filePath, imageBuffer);
 
