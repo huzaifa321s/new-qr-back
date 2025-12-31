@@ -539,7 +539,13 @@ exports.createDynamicQR = async (req, res) => {
         // Generate actual QR URL based on type BEFORE saving
         // Always use FRONTEND URL for Dynamic QRs to ensure consistent mobile preview
         const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-        const qrContent = `${frontendUrl}/view/${shortId}`;
+        const backendUrl = `${req.protocol}://${req.get('host')}`;
+
+        // For dynamic-url type, point directly to backend redirect for better tracking
+        // For other types (content-rich landing pages), point to frontend view
+        const qrContent = type === 'dynamic-url'
+            ? `${backendUrl}/${shortId}`
+            : `${frontendUrl}/view/${shortId}`;
 
         // Create DB Record with actual QR URL (not placeholder)
         const newQR = new QRCodeModel({
@@ -579,7 +585,6 @@ exports.createDynamicQR = async (req, res) => {
             video,
             feedback,
             images,
-            dynamicUrl,
             dynamicUrl,
             shortId: shortId,
             password,
@@ -697,7 +702,14 @@ exports.redirectQR = async (req, res) => {
         if (qr.type === 'url') {
             return res.redirect(qr.data);
         } else if (qr.type === 'dynamic-url') {
-            return res.redirect(qr.dynamicUrl);
+            let target = qr.dynamicUrl || '';
+            if (target && !target.startsWith('http')) {
+                target = `https://${target}`;
+            }
+            if (target) return res.redirect(target);
+            // Fallback to view page if no URL provided
+            const baseUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+            return res.redirect(`${baseUrl}/view/${qr.shortId}?scanned=true`);
         } else if (qr.type === 'video') {
             if (qr.video && qr.video.redirect) {
                 return res.redirect(qr.video.url);
@@ -788,8 +800,12 @@ exports.updateQR = async (req, res) => {
             qr.shortId = shortId;
 
             // Update the redirect link if it's a dynamic QR
-            const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
-            qr.data = `${frontendUrl}/view/${shortId}`;
+            const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+            const backendUrl = `${req.protocol}://${req.get('host')}`;
+
+            qr.data = qr.type === 'dynamic-url'
+                ? `${backendUrl}/${shortId}`
+                : `${frontendUrl}/view/${shortId}`;
         }
 
         // 2. Update other fields
