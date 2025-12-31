@@ -1,10 +1,10 @@
-﻿const QRCode = require('qrcode');
+const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
 const shortid = require('shortid');
 const axios = require('axios'); // Add axios
-const { saveTemporary, deleteQRImage, promoteToPermanent } = require('../utils/blobStorage');
+const { saveTemporary, deleteQRImage, promoteToPermanent, uploadQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
 const waitForDbConnection = require('../utils/waitDBConnection');
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
