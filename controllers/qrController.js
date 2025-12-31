@@ -1099,7 +1099,7 @@ exports.listQRs = async (req, res) => {
         // Tab filter (Dynamic/Static)
         if (tab && tab !== 'All') {
             if (tab === 'Dynamic') {
-                query.type = { $in: ['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image', 'app-store'] };
+                query.type = { $in: ['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image', 'app-store', 'dynamic-url'] };
             } else if (tab === 'Static') {
                 query.type = { $in: ['url', 'text', 'email', 'phone', 'sms', 'wifi', 'vcard', 'static', 'website', 'map'] };
             }
