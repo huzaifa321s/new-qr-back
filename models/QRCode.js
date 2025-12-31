@@ -172,7 +172,12 @@ const QRCodeSchema = new mongoose.Schema({
         device: String,
         os: String,
         browser: String,
-        location: String
+        location: String,
+        locationConfidence: {
+            type: String,
+            enum: ['high', 'medium', 'low', 'unknown', 'dev'],
+            default: 'unknown'
+        },
     }],
     scanCount: {
         type: Number,
