@@ -2,7 +2,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { uploadFile, deleteFile } = require('../utils/blobStorage');
+const { saveTemporary, deleteFile } = require('../utils/blobStorage');
 
 // Configure multer storage
 // Use Memory Storage to get the buffer, then let 'blobStorage.js' decide 
@@ -55,7 +55,7 @@ exports.handleLogoUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await uploadFile(req.file.buffer, filename);
+        const fileUrl = await saveTemporary(req.file.buffer, filename);
 
         res.json({ success: true, url: fileUrl, filename: filename });
     } catch (err) {
@@ -73,7 +73,7 @@ exports.handleBackgroundUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await uploadFile(req.file.buffer, filename);
+        const fileUrl = await saveTemporary(req.file.buffer, filename);
 
         res.json({ success: true, url: fileUrl, filename: filename });
     } catch (err) {
@@ -91,7 +91,7 @@ exports.handleVideoUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await uploadFile(req.file.buffer, filename);
+        const fileUrl = await saveTemporary(req.file.buffer, filename);
 
         res.json({ success: true, url: fileUrl, filename: filename });
     } catch (err) {
@@ -109,7 +109,7 @@ exports.handleStatusUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await uploadFile(req.file.buffer, filename);
+        const fileUrl = await saveTemporary(req.file.buffer, filename);
 
         res.json({ success: true, url: fileUrl, filename: filename });
     } catch (err) {
@@ -152,7 +152,7 @@ exports.handleImageUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await uploadFile(req.file.buffer, filename);
+        const fileUrl = await saveTemporary(req.file.buffer, filename);
 
         res.json({ success: true, url: fileUrl, filename: filename });
     } catch (err) {
@@ -170,7 +170,7 @@ exports.handlePdfUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await uploadFile(req.file.buffer, filename);
+        const fileUrl = await saveTemporary(req.file.buffer, filename);
 
         res.json({ success: true, url: fileUrl, filename: filename });
     } catch (err) {

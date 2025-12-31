@@ -1,10 +1,10 @@
-const QRCode = require('qrcode');
+﻿const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
 const shortid = require('shortid');
 const axios = require('axios'); // Add axios
-const { uploadQRImage, deleteQRImage } = require('../utils/blobStorage');
+const { saveTemporary, deleteQRImage, promoteToPermanent } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
 const waitForDbConnection = require('../utils/waitDBConnection');
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
@@ -217,6 +217,30 @@ const SHAPES = {
         cross: "M15 10 L25 20 L35 10 L40 15 L30 25 L40 35 L35 40 L25 30 L15 40 L10 35 L20 25 L10 15 Z"
     }
 };
+
+/**
+ * Recursively find strings with /uploads/temp/ and promote them to permanent storage
+ * @param {Object|Array} obj - The object to scan
+ * @returns {Promise<Object|Array>} - The updated object with permanent URLs
+ */
+async function findAndPromoteFiles(obj) {
+    if (!obj) return obj;
+
+    if (Array.isArray(obj)) {
+        for (let i = 0; i < obj.length; i++) {
+            obj[i] = await findAndPromoteFiles(obj[i]);
+        }
+    } else if (typeof obj === 'object') {
+        for (const key in obj) {
+            if (typeof obj[key] === 'string' && obj[key].includes('/uploads/temp/')) {
+                obj[key] = await promoteToPermanent(obj[key]);
+            } else if (typeof obj[key] === 'object') {
+                obj[key] = await findAndPromoteFiles(obj[key]);
+            }
+        }
+    }
+    return obj;
+}
 
 // Helper to draw rounded rect
 function drawRoundedRect(ctx, x, y, width, height, radius, fill, stroke) {
@@ -652,6 +676,9 @@ exports.generateQR = async (req, res) => {
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
     try {
+        // Promote any temporary uploads (logo, images, etc.) to permanent storage
+        await findAndPromoteFiles(req.body);
+
         const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit, categories } = req.body;
 
         // Generate shortId first
@@ -732,7 +759,7 @@ exports.createDynamicQR = async (req, res) => {
 
             // Use the actual QR content URL we just set
             console.log('🔄 Regenerating QR Image for creation to ensure correct URL:', qrContent);
-            imageBuffer = await generateQRImageBuffer(qrContent, design);
+            const imageBuffer = await generateQRImageBuffer(qrContent, design);
 
             const blobUrl = await uploadQRImage(imageBuffer, filename);
 
@@ -758,6 +785,9 @@ exports.createDynamicQR = async (req, res) => {
 // Create Static QR
 exports.createStaticQR = async (req, res) => {
     try {
+        // Promote any temporary uploads to permanent storage
+        await findAndPromoteFiles(req.body);
+
         const { type, name, data, design } = req.body;
 
         // For static QRs, the 'data' is the actual content (e.g. Website URL)
@@ -904,6 +934,9 @@ exports.trackScan = async (req, res) => {
 // Update QR (Editable)
 exports.updateQR = async (req, res) => {
     try {
+        // Promote any temporary uploads to permanent storage
+        await findAndPromoteFiles(req.body);
+
         const { id } = req.params;
         const { shortId, data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
 

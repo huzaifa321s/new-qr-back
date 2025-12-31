@@ -2,53 +2,53 @@ const fs = require('fs');
 const path = require('path');
 const { put, del } = require('@vercel/blob');
 
-// Ensure uploads directory exists for local development
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Ensure uploads directory and temp subdirectory exist
+const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
+const TEMP_DIR = path.join(UPLOAD_ROOT, 'temp');
+
+[UPLOAD_ROOT, TEMP_DIR].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+});
+
+/**
+ * Save file strictly to local temporary storage
+ * Always used for initial uploads in both dev and prod (on Vercel, this is ephemeral)
+ */
+async function saveTemporary(imageBuffer, filename) {
+    try {
+        const filePath = path.join(TEMP_DIR, filename);
+        await fs.promises.writeFile(filePath, imageBuffer);
+
+        const host = process.env.VITE_API_URL || 'http://localhost:3000';
+        return `${host}/uploads/temp/${filename}`;
+    } catch (error) {
+        console.error('Error saving temporary file:', error);
+        throw error;
+    }
 }
 
 /**
  * Upload QR code image (Local or Vercel Blob based on Env)
- * @param {Buffer} imageBuffer - QR code image buffer
- * @param {string} filename - Filename for the blob/file
- * @returns {Promise<string>} - File URL
  */
 async function uploadQRImage(imageBuffer, filename) {
-    const mode = process.env.UPLOAD_MODE || 'prod'; // Default to prod if not set
-    console.log("mode", mode);
+    const mode = process.env.UPLOAD_MODE || 'prod';
     if (mode === 'dev' || mode === 'local') {
-        // --- LOCAL STORAGE MODE ---
         try {
-            // Strip any folder prefixes from filename for local storage simplicity if needed
-            // But we can keep structure if we want.
-            // filename comes in as "qr-codes/shortid.png" usually.
-            // We should make sure the directory exists if it has a path.
-
-            const filePath = path.join(__dirname, '..', 'uploads', filename);
+            const filePath = path.join(UPLOAD_ROOT, filename);
             const fileDir = path.dirname(filePath);
-
             if (!fs.existsSync(fileDir)) {
                 fs.mkdirSync(fileDir, { recursive: true });
             }
-
             await fs.promises.writeFile(filePath, imageBuffer);
-
-            // Return Local URL
-            // Assuming server runs on localhost:3000 or similar.
-            // We need a base URL. For now we returns a relative path or absolute URL if we can guess.
-            // Better to return a relative URL path that the frontend can prepend base URL to, OR returns a full URL if we have HOST env.
-            // Based on standard simple setup:
             const host = process.env.VITE_API_URL || 'http://localhost:3000';
-            // We serve 'uploads' directory at '/uploads' route.
             return `${host}/uploads/${filename}`;
         } catch (error) {
             console.error('Error saving to Local Storage:', error);
             throw error;
         }
-
     } else {
-        // --- VERCEL BLOB MODE (PROD) ---
         try {
             const blob = await put(filename, imageBuffer, {
                 access: 'public',
@@ -59,6 +59,59 @@ async function uploadQRImage(imageBuffer, filename) {
             console.error('Error uploading to Vercel Blob:', error);
             throw error;
         }
+    }
+}
+
+/**
+ * Promote a local temp file to Vercel Blob (Permanent)
+ */
+async function promoteToPermanent(tempUrl) {
+    if (!tempUrl || !tempUrl.includes('/uploads/temp/')) {
+        return tempUrl; // Already permanent or not a temp file
+    }
+
+    try {
+        const filename = tempUrl.split('/uploads/temp/').pop();
+        const filePath = path.join(TEMP_DIR, filename);
+
+        if (!fs.existsSync(filePath)) {
+            console.warn(`⚠️ Temp file not found for promotion: ${filePath}`);
+            return tempUrl;
+        }
+
+        const buffer = await fs.promises.readFile(filePath);
+
+        // Always upload to Blob in prod mode, or keep local in dev mode
+        const mode = process.env.UPLOAD_MODE || 'prod';
+        let permanentUrl;
+
+        if (mode === 'dev' || mode === 'local') {
+            // In dev, just move from temp to root uploads
+            const permPath = path.join(UPLOAD_ROOT, filename);
+            await fs.promises.writeFile(permPath, buffer);
+            const host = process.env.VITE_API_URL || 'http://localhost:3000';
+            permanentUrl = `${host}/uploads/${filename}`;
+        } else {
+            // In prod, upload to Vercel Blob
+            const blob = await put(filename, buffer, {
+                access: 'public',
+                contentType: filename.endsWith('.pdf') ? 'application/pdf' :
+                    filename.endsWith('.mp4') ? 'video/mp4' : 'image/png'
+            });
+            permanentUrl = blob.url;
+        }
+
+        // Cleanup temp file
+        try {
+            await fs.promises.unlink(filePath);
+        } catch (e) {
+            console.warn('Failed to cleanup temp file:', e.message);
+        }
+
+        return permanentUrl;
+    } catch (error) {
+        console.error('Error promoting file to permanent:', error);
+        return tempUrl; // Return original on failure to avoid breaking flow
     }
 }
 
@@ -100,8 +153,10 @@ async function deleteQRImage(fileUrl) {
 }
 
 module.exports = {
+    saveTemporary,
+    promoteToPermanent,
     uploadQRImage,
-    uploadFile: uploadQRImage, // Alias for generic use
+    uploadFile: uploadQRImage,
     deleteQRImage,
-    deleteFile: deleteQRImage // Alias for generic use
+    deleteFile: deleteQRImage
 };
