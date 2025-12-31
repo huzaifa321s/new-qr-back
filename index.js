@@ -42,6 +42,11 @@ app.use((req, res, next) => {
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
 
+// Serve temporary files on Vercel from /tmp
+if (process.env.VERCEL === '1') {
+    app.use('/uploads', express.static('/tmp/uploads'));
+}
+
 // Routes
 app.use('/api/qr', require('./routes/qrRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
