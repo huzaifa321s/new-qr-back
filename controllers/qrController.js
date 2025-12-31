@@ -1031,19 +1031,21 @@ exports.downloadStoredQR = async (req, res) => {
             // But if consistency is key, and we only have PNG stored, we might not be able to give a perfect SVG of the *stored* PNG.
             // Let's keep SVG regeneration for now as it creates vector graphics.
 
-            // Re-construct content for SVG generation
             const isLocal = req.get('host').includes('localhost');
+            const backendBase = `${req.protocol}://${req.get('host')}`;
             const frontendBase = (process.env.FRONTEND_URL || (isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`)).replace(/\/$/, '');
 
             let content;
             if (qr.isDynamic === false) {
                 content = qr.data;
+            } else if (type === 'dynamic-url') {
+                content = `${backendBase}/${qr.shortId}`;
             } else if (type === 'app-store') {
                 content = `${frontendBase}/app/${qr.shortId}`;
-            } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
+            } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type) || qr.isBusinessPage) {
                 content = `${frontendBase}/view/${qr.shortId}`;
             } else {
-                content = `${frontendBase}/r/${qr.shortId}`;
+                content = `${backendBase}/${qr.shortId}`;
             }
 
             const svgString = await QRCode.toString(content, {
@@ -1100,17 +1102,20 @@ exports.downloadStoredQR = async (req, res) => {
         if (!pngBuffer) {
             console.log('⚠️ Regenerating QR image (Fallback)...');
             const isLocal = req.get('host').includes('localhost');
+            const backendBase = `${req.protocol}://${req.get('host')}`;
             const frontendBase = (process.env.FRONTEND_URL || (isLocal ? 'http://localhost:5173' : `${req.protocol}://${req.get('host').replace(':3000', '')}`)).replace(/\/$/, '');
 
             let content;
             if (qr.isDynamic === false) {
                 content = qr.data;
+            } else if (type === 'dynamic-url') {
+                content = `${backendBase}/${qr.shortId}`;
             } else if (type === 'app-store') {
                 content = `${frontendBase}/app/${qr.shortId}`;
-            } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type)) {
+            } else if (['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image'].includes(type) || qr.isBusinessPage) {
                 content = `${frontendBase}/view/${qr.shortId}`;
             } else {
-                content = `${frontendBase}/r/${qr.shortId}`;
+                content = `${backendBase}/${qr.shortId}`;
             }
 
             try {
