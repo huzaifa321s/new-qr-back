@@ -1,4 +1,4 @@
-﻿const QRCode = require('qrcode');
+const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
@@ -11,52 +11,55 @@ const waitForDbConnection = require('../utils/waitDBConnection');
 
 // Helper to get client scan details (IP & Geo)
 const getScanDetails = async (req) => {
-    // 1. Enhanced IP Detection (Crucial for Vercel/Proxies)
-    let ip = req.headers['x-forwarded-for'] || req.clientIp || req.socket.remoteAddress || req.ip;
+    // 1. Enhanced IP Detection
+    let ip = req.headers['x-forwarded-for'] ||
+        req.headers['x-real-ip'] ||
+        req.clientIp ||
+        req.socket.remoteAddress ||
+        req.ip;
 
-    // x-forwarded-for can be a comma-separated list, first one is the client
     if (ip && ip.includes(',')) {
         ip = ip.split(',')[0].trim();
     }
 
-    // Normalize IPv6-mapped IPv4
     if (ip && ip.startsWith('::ffff:')) {
         ip = ip.substring(7);
     }
 
-    // Clean up port from IPv4
     if (ip && ip.includes(':') && !ip.includes('::')) {
         ip = ip.split(':')[0];
     }
 
-    console.log('📍 New Scan Detected. Extracted IP:', ip);
+    console.log('📍 Extracted IP:', ip);
 
     const userAgent = req.useragent;
     let location = 'Unknown';
+    let locationConfidence = 'low';
 
-    // 2. Professional Geolocation (Vercel Headers > External API)
+    // 2. PRIORITY 1: Vercel Headers (Most Accurate - 99% correct)
     const vercelCity = req.headers['x-vercel-ip-city'];
     const vercelCountry = req.headers['x-vercel-ip-country'];
+    const vercelRegion = req.headers['x-vercel-ip-country-region'];
 
-    if (vercelCity || vercelCountry) {
-        // Vercel provided headers are 100% accurate for the actual visitor
-        const city = vercelCity ? decodeURIComponent(vercelCity) : 'Unknown';
-        const country = vercelCountry || 'Unknown';
-        location = `${city}, ${country}`;
-        console.log('🏢 Location from Vercel Headers:', location);
-    } else if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
-        location = 'Karachi, Pakistan'; // Localhost fallback
-    } else {
-        // Fallback to External API if not on Vercel or headers missing
-        try {
-            const geoRes = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,city`);
-            if (geoRes.data && geoRes.data.status === 'success') {
-                location = `${geoRes.data.city}, ${geoRes.data.country}`;
-                console.log('🌐 Location from ip-api.com:', location);
-            }
-        } catch (geoErr) {
-            console.error('Geo lookup error:', geoErr.message);
-        }
+    if (vercelCity && vercelCountry) {
+        const city = decodeURIComponent(vercelCity);
+        const country = vercelCountry;
+        const region = vercelRegion ? decodeURIComponent(vercelRegion) : '';
+
+        location = region ? `${city}, ${region}, ${country}` : `${city}, ${country}`;
+        locationConfidence = 'high';
+        console.log('✅ Vercel Headers (High Confidence):', location);
+    }
+    // 3. Localhost
+    else if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
+        location = 'Karachi, Pakistan (Local Dev)';
+        locationConfidence = 'dev';
+    }
+    // 4. Multi-API with Cross-Verification
+    else {
+        const geoData = await getAccurateLocation(ip);
+        location = geoData.location;
+        locationConfidence = geoData.confidence;
     }
 
     return {
@@ -64,8 +67,128 @@ const getScanDetails = async (req) => {
         device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
         os: userAgent ? userAgent.os : 'Unknown',
         browser: userAgent ? userAgent.browser : 'Unknown',
-        location: location
+        location: location,
+        locationConfidence: locationConfidence // 'high', 'medium', 'low', 'unknown'
     };
+};
+
+// Cross-Verification System
+const getAccurateLocation = async (ip) => {
+    const results = [];
+
+    // API 1: ipapi.co (Most Accurate)
+    try {
+        const res1 = await axios.get(`https://ipapi.co/${ip}/json/`, {
+            timeout: 2500,
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+
+        if (res1.data && res1.data.city && res1.data.country_name) {
+            results.push({
+                api: 'ipapi.co',
+                city: res1.data.city,
+                region: res1.data.region,
+                country: res1.data.country_name,
+                countryCode: res1.data.country_code,
+                latitude: res1.data.latitude,
+                longitude: res1.data.longitude
+            });
+        }
+    } catch (err) {
+        console.warn('⚠️ ipapi.co failed:', err.message);
+    }
+
+    // API 2: ipwhois.app (Fast & Reliable)
+    try {
+        const res2 = await axios.get(`https://ipwhois.app/json/${ip}`, {
+            timeout: 2500
+        });
+
+        if (res2.data && res2.data.success && res2.data.city) {
+            results.push({
+                api: 'ipwhois.app',
+                city: res2.data.city,
+                region: res2.data.region,
+                country: res2.data.country,
+                countryCode: res2.data.country_code,
+                latitude: res2.data.latitude,
+                longitude: res2.data.longitude
+            });
+        }
+    } catch (err) {
+        console.warn('⚠️ ipwhois.app failed:', err.message);
+    }
+
+    // API 3: ip-api.com (Backup)
+    try {
+        const res3 = await axios.get(`http://ip-api.com/json/${ip}`, {
+            params: { fields: 'status,city,regionName,country,countryCode,lat,lon' },
+            timeout: 2500
+        });
+
+        if (res3.data && res3.data.status === 'success' && res3.data.city) {
+            results.push({
+                api: 'ip-api.com',
+                city: res3.data.city,
+                region: res3.data.regionName,
+                country: res3.data.country,
+                countryCode: res3.data.countryCode,
+                latitude: res3.data.lat,
+                longitude: res3.data.lon
+            });
+        }
+    } catch (err) {
+        console.warn('⚠️ ip-api.com failed:', err.message);
+    }
+
+    // Cross-Verification Logic
+    if (results.length === 0) {
+        return { location: 'Unknown', confidence: 'unknown' };
+    }
+
+    if (results.length === 1) {
+        const data = results[0];
+        return {
+            location: `${data.city}, ${data.country}`,
+            confidence: 'medium'
+        };
+    }
+
+    // If 2+ APIs, check if they agree
+    const cities = results.map(r => r.city.toLowerCase());
+    const countries = results.map(r => r.countryCode);
+
+    // Count matches
+    const cityMatch = cities.every(c => c === cities[0]);
+    const countryMatch = countries.every(c => c === countries[0]);
+
+    if (cityMatch && countryMatch) {
+        // All APIs agree - HIGH CONFIDENCE
+        const data = results[0];
+        console.log(`✅ Cross-verified (${results.length} APIs agree):`, `${data.city}, ${data.country}`);
+        return {
+            location: `${data.city}, ${data.country}`,
+            confidence: 'high'
+        };
+    }
+    else if (countryMatch) {
+        // Country matches but city differs - MEDIUM CONFIDENCE
+        const data = results[0];
+        console.log(`⚠️ Partial match (Country OK, City varies):`, `${data.city}, ${data.country}`);
+        return {
+            location: `${data.city}, ${data.country}`,
+            confidence: 'medium'
+        };
+    }
+    else {
+        // APIs disagree - Use most reliable API (ipapi.co priority)
+        const preferredApi = results.find(r => r.api === 'ipapi.co') || results[0];
+        console.log(`⚠️ APIs disagree. Using ${preferredApi.api}:`, `${preferredApi.city}, ${preferredApi.country}`);
+        return {
+            location: `${preferredApi.city}, ${preferredApi.country}`,
+            confidence: 'low'
+        };
+    }
 };
 
 const SHAPES = {
