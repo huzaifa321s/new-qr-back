@@ -10,7 +10,7 @@ const QRCodeSchema = new mongoose.Schema({
             'app-store', 'menu', 'coupon', 'business-card', 'business-page',
             'bio-page', 'survey', 'lead-generation', 'rating', 'reviews',
             'social-media', 'pdf', 'multiple-links', 'password-protected',
-            'event', 'product-page', 'dynamic-url', 'video', 'image', 'custom-type', 'static'
+            'event', 'product-page', 'dynamic-url', 'video', 'image', 'custom-type', 'static', 'more'
         ]
     },
     name: { type: String },
