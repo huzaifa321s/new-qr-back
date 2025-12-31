@@ -1,4 +1,4 @@
-const QRCode = require('qrcode');
+﻿const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
