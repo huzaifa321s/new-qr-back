@@ -534,15 +534,25 @@ async function generateQRImageBuffer(content, design) {
     drawEye(moduleCount - 7, 0);
 
     // Add logo if exists
-    if (design?.image?.url) {
-        console.log('🖼️ DATA CHECK - Logo URL present:', design.image.url);
-        try {
-            console.log('🖼️ Attempting to load logo for QR:', design.image.url);
+    const logoUrl = design?.logo?.url || design?.image?.url;
 
-            // Robust fetch using axios (handles redirects, headers better than canvas.loadImage)
-            const logoResponse = await axios.get(design.image.url, { responseType: 'arraybuffer' });
-            const logoBuffer = Buffer.from(logoResponse.data);
-            const logoImage = await loadImage(logoBuffer);
+    if (logoUrl) {
+        console.log('🖼️ DATA CHECK - Logo URL present');
+        try {
+            console.log('🖼️ Attempting to load logo for QR');
+
+            let logoImage;
+
+            // Check if it is a Data URI (Base64)
+            if (logoUrl.startsWith('data:')) {
+                // For Base64, loadImage from canvas can handle it directly
+                logoImage = await loadImage(logoUrl);
+            } else {
+                // For remote URLs, use robust fetch with axios
+                const logoResponse = await axios.get(logoUrl, { responseType: 'arraybuffer' });
+                const logoBuffer = Buffer.from(logoResponse.data);
+                logoImage = await loadImage(logoBuffer);
+            }
 
             // Clamp logo size to safe maximum (35% of QR width) to preserve scannability
             // Default to 0.2 (20%) if not specified

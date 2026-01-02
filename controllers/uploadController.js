@@ -50,14 +50,25 @@ const upload = multer({
 exports.uploadLogo = upload.single('logo');
 exports.handleLogoUpload = async (req, res) => {
     try {
+
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        // Return Base64 for stateless preview (Works on Vercel & Local)
-        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-        res.json({ success: true, url: base64Url, filename: filename });
+        // In dev/local mode: save to temp folder for persistence
+        // In production (Vercel): return Base64 for stateless preview
+        const isVercel = process.env.VERCEL === '1';
+
+        if (!isVercel) {
+            // Local development - save to temp folder
+            const fileUrl = await saveTemporary(req.file.buffer, filename);
+            res.json({ success: true, url: fileUrl, filename: filename });
+        } else {
+            // Production (Vercel) - return Base64 for stateless preview
+            const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+            res.json({ success: true, url: base64Url, filename: filename });
+        }
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
@@ -73,9 +84,15 @@ exports.handleBackgroundUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        // Return Base64 for stateless preview
-        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-        res.json({ success: true, url: base64Url, filename: filename });
+        const isVercel = process.env.VERCEL === '1';
+
+        if (!isVercel) {
+            const fileUrl = await saveTemporary(req.file.buffer, filename);
+            res.json({ success: true, url: fileUrl, filename: filename });
+        } else {
+            const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+            res.json({ success: true, url: base64Url, filename: filename });
+        }
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
@@ -109,9 +126,15 @@ exports.handleStatusUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        // Return Base64 for stateless preview
-        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-        res.json({ success: true, url: base64Url, filename: filename });
+        const isVercel = process.env.VERCEL === '1';
+
+        if (!isVercel) {
+            const fileUrl = await saveTemporary(req.file.buffer, filename);
+            res.json({ success: true, url: fileUrl, filename: filename });
+        } else {
+            const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+            res.json({ success: true, url: base64Url, filename: filename });
+        }
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
@@ -147,14 +170,21 @@ exports.deleteFile = async (req, res) => {
 exports.uploadImage = upload.single('image');
 exports.handleImageUpload = async (req, res) => {
     try {
+        console.log("condition true")
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        // Return Base64 for stateless preview
-        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-        res.json({ success: true, url: base64Url, filename: filename });
+        const isVercel = process.env.VERCEL === '1';
+
+        if (!isVercel) {
+            const fileUrl = await saveTemporary(req.file.buffer, filename);
+            res.json({ success: true, url: fileUrl, filename: filename });
+        } else {
+            const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+            res.json({ success: true, url: base64Url, filename: filename });
+        }
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
