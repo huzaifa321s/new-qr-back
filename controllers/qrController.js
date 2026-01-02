@@ -1008,8 +1008,8 @@ exports.updateQR = async (req, res) => {
 
         await qr.save();
 
-        // 3. Regenerate QR image if design OR shortId changed
-        if (design || isShortIdChanged) {
+        // 3. Regenerate QR image if design OR shortId OR data changed
+        if (design || isShortIdChanged || data !== undefined) {
             try {
                 const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
                 const qrContent = qr.data; // Contains the view URL
@@ -1101,7 +1101,7 @@ exports.listQRs = async (req, res) => {
             if (tab === 'Dynamic') {
                 query.type = { $in: ['menu', 'business-page', 'custom-type', 'coupon', 'business-card', 'bio-page', 'lead-generation', 'rating', 'reviews', 'social-media', 'pdf', 'multiple-links', 'password-protected', 'event', 'product-page', 'video', 'image', 'app-store', 'dynamic-url'] };
             } else if (tab === 'Static') {
-                query.type = { $in: ['url', 'text', 'email', 'phone', 'sms', 'wifi', 'vcard', 'static', 'website', 'map'] };
+                query.type = { $in: ['url', 'text', 'email', 'phone', 'sms', 'wifi', 'vcard', 'static', 'website', 'map', 'more'] };
             }
         }
 
