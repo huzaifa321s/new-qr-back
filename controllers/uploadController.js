@@ -55,9 +55,9 @@ exports.handleLogoUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await saveTemporary(req.file.buffer, filename);
-
-        res.json({ success: true, url: fileUrl, filename: filename });
+        // Return Base64 for stateless preview (Works on Vercel & Local)
+        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        res.json({ success: true, url: base64Url, filename: filename });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
@@ -73,9 +73,9 @@ exports.handleBackgroundUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await saveTemporary(req.file.buffer, filename);
-
-        res.json({ success: true, url: fileUrl, filename: filename });
+        // Return Base64 for stateless preview
+        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        res.json({ success: true, url: base64Url, filename: filename });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
@@ -109,9 +109,9 @@ exports.handleStatusUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await saveTemporary(req.file.buffer, filename);
-
-        res.json({ success: true, url: fileUrl, filename: filename });
+        // Return Base64 for stateless preview
+        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        res.json({ success: true, url: base64Url, filename: filename });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
@@ -152,9 +152,9 @@ exports.handleImageUpload = async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const filename = req.file.fieldname + '-' + uniqueSuffix + path.extname(req.file.originalname);
 
-        const fileUrl = await saveTemporary(req.file.buffer, filename);
-
-        res.json({ success: true, url: fileUrl, filename: filename });
+        // Return Base64 for stateless preview
+        const base64Url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        res.json({ success: true, url: base64Url, filename: filename });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Upload failed' });
