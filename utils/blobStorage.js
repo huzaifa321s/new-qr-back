@@ -79,6 +79,49 @@ async function uploadQRImage(imageBuffer, filename) {
  * Promote a local temp file to Vercel Blob (Permanent)
  */
 async function promoteToPermanent(tempUrl) {
+    // CHECK 1: Is it a Base64 Data URI?
+    if (tempUrl && tempUrl.startsWith('data:')) {
+        try {
+            console.log('🚀 Promoting Base64 image to Vercel Blob...');
+            // Extract content type and base64 data
+            const matches = tempUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (!matches || matches.length !== 3) {
+                console.warn('⚠️ Invalid Base64 string format');
+                return tempUrl;
+            }
+
+            const contentType = matches[1];
+            const buffer = Buffer.from(matches[2], 'base64');
+            const ext = contentType.split('/')[1] || 'png';
+            const filename = `upload-${Date.now()}-${Math.round(Math.random() * 1E9)}.${ext}`;
+
+            // Always upload to Blob in prod mode, or keep local in dev mode
+            const mode = process.env.UPLOAD_MODE || 'prod';
+
+            if (mode === 'dev' || mode === 'local') {
+                // Ensure root uploads dir exists
+                if (!fs.existsSync(UPLOAD_ROOT)) fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+
+                const permPath = path.join(UPLOAD_ROOT, filename);
+                await fs.promises.writeFile(permPath, buffer);
+                const host = process.env.VITE_API_URL || 'http://localhost:3000';
+                console.log(`✅ Base64 Saved Locally: ${host}/uploads/${filename}`);
+                return `${host}/uploads/${filename}`;
+            } else {
+                const blob = await put(filename, buffer, {
+                    access: 'public',
+                    contentType: contentType
+                });
+                console.log(`✅ Base64 Promoted to Blob: ${blob.url}`);
+                return blob.url;
+            }
+        } catch (err) {
+            console.error('Error promoting Base64 to permanent:', err);
+            return tempUrl;
+        }
+    }
+
+    // CHECK 2: Is it a Local Temp URL?
     if (!tempUrl || !tempUrl.includes('/uploads/temp/')) {
         return tempUrl; // Already permanent or not a temp file
     }
