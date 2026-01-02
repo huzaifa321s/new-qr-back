@@ -106,12 +106,14 @@ async function promoteToPermanent(tempUrl) {
             permanentUrl = `${host}/uploads/${filename}`;
         } else {
             // In prod, upload to Vercel Blob
+            console.log(`🚀 Promoting local file to Vercel Blob: ${filename}`);
             const blob = await put(filename, buffer, {
                 access: 'public',
                 contentType: filename.endsWith('.pdf') ? 'application/pdf' :
                     filename.endsWith('.mp4') ? 'video/mp4' : 'image/png'
             });
             permanentUrl = blob.url;
+            console.log(`✅ File promoted successfully: ${permanentUrl}`);
         }
 
         // Cleanup temp file
