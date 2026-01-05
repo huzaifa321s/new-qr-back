@@ -534,7 +534,7 @@ async function generateQRImageBuffer(content, design) {
     drawEye(moduleCount - 7, 0);
 
     // Add logo if exists
-    const logoUrl = design?.logo?.url || design?.image?.url;
+    const logoUrl = design?.image?.url;
 
     if (logoUrl) {
         console.log('🖼️ DATA CHECK - Logo URL present');
@@ -641,9 +641,9 @@ exports.generateQR = async (req, res) => {
         }
 
         // 5. Logo Overlay
-        if (design?.logo?.url) {
+        if (design?.image?.url) {
             try {
-                const logo = await loadImage(design.logo.url);
+                const logo = await loadImage(design.image.url);
                 const logoSize = canvasSize * 0.2;
                 const logoX = (canvasSize - logoSize) / 2;
                 const logoY = (canvasSize - logoSize) / 2;
