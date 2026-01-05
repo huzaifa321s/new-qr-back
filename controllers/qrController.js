@@ -1,4 +1,4 @@
-const QRCode = require('qrcode');
+﻿const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
@@ -682,6 +682,26 @@ exports.generateQR = async (req, res) => {
         res.status(500).send('Server Error');
     }
 };
+
+// Helper to find and delete files recursively
+async function findAndDeleteFiles(obj) {
+    if (!obj) return;
+
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            await findAndDeleteFiles(item);
+        }
+    } else if (typeof obj === 'object') {
+        for (const key in obj) {
+            if (typeof obj[key] === 'string' && (obj[key].includes('/uploads/') || obj[key].includes('public.blob.vercel-storage.com'))) {
+                console.log('🗑️ Deleting associated file:', obj[key]);
+                await deleteQRImage(obj[key]);
+            } else if (typeof obj[key] === 'object') {
+                await findAndDeleteFiles(obj[key]);
+            }
+        }
+    }
+}
 
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
@@ -1368,9 +1388,20 @@ exports.downloadStoredQR = async (req, res) => {
 // Delete QR
 exports.deleteQR = async (req, res) => {
     try {
-        const qr = await QRCodeModel.findByIdAndDelete(req.params.id);
-        if (!qr) return res.status(404).send('QR Not Found');
-        res.json({ success: true, message: 'QR Code deleted' });
+        const qr = await QRCodeModel.findById(req.params.id);
+        if (!qr) return res.status(404).json({ msg: 'QR Code not found' });
+
+        // Recursive deletion of all associated files (logos, backgrounds, etc.)
+        if (process.env.UPLOAD_MODE === 'prod') {
+            await findAndDeleteFiles(qr.toObject());
+            // Also delete the QR image itself
+            if (qr.qrImageUrl) {
+                await deleteQRImage(qr.qrImageUrl);
+            }
+        }
+
+        await qr.deleteOne();
+        res.json({ msg: 'QR Code and associated files deleted' });
     } catch (err) {
         console.error(err);
         res.status(500).send('Server Error');

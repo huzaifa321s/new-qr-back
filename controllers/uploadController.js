@@ -60,6 +60,7 @@ exports.handleLogoUpload = async (req, res) => {
         // In production (Vercel): return Base64 for stateless preview
         const isVercel = process.env.VERCEL === '1';
 
+        console.log('isVercel', isVercel)
         if (!isVercel) {
             // Local development - save to temp folder
             const fileUrl = await saveTemporary(req.file.buffer, filename);
