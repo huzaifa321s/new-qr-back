@@ -12,6 +12,11 @@ router.post('/static', qrController.createStaticQR);
 // @access  Public
 router.post('/dynamic', qrController.createDynamicQR);
 
+// @route   POST api/qr/preview
+// @desc    Generate QR preview
+// @access  Public
+router.post('/preview', qrController.generatePreview);
+
 // @route   GET api/qr/list
 // @desc    List all QR codes
 // @access  Public

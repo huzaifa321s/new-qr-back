@@ -1,4 +1,4 @@
-﻿const QRCode = require('qrcode');
+const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
@@ -816,6 +816,28 @@ exports.createDynamicQR = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).send('Server Error');
+    }
+};
+
+// Generate QR Preview (Live)
+exports.generatePreview = async (req, res) => {
+    try {
+        const { content, design } = req.body;
+        
+        if (!content) {
+             return res.status(400).json({ success: false, message: 'Content is required' });
+        }
+
+        // Generate image buffer using the same logic as final QR
+        const buffer = await generateQRImageBuffer(content, design);
+        
+        // Convert to Base64
+        const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
+        
+        res.json({ success: true, image: base64 });
+    } catch (error) {
+        console.error('Preview generation error:', error);
+        res.status(500).json({ success: false, message: 'Failed to generate preview' });
     }
 };
 
