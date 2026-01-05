@@ -47,7 +47,7 @@ const upload = multer({
 });
 
 // Upload logo
-exports.uploadLogo = upload.single('image');
+exports.uploadLogo = upload.single('logo');
 exports.handleLogoUpload = async (req, res) => {
     try {
         console.log('file')
