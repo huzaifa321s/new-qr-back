@@ -1,4 +1,4 @@
-﻿const QRCode = require('qrcode');
+const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
@@ -232,7 +232,7 @@ async function findAndPromoteFiles(obj) {
         }
     } else if (typeof obj === 'object') {
         for (const key in obj) {
-            if (typeof obj[key] === 'string' && obj[key].includes('/uploads/temp/')) {
+            if (typeof obj[key] === 'string' && (obj[key].includes('/uploads/temp/') || obj[key].startsWith('data:'))) {
                 obj[key] = await promoteToPermanent(obj[key]);
             } else if (typeof obj[key] === 'object') {
                 obj[key] = await findAndPromoteFiles(obj[key]);
@@ -686,13 +686,15 @@ exports.generateQR = async (req, res) => {
 // Create Dynamic QR
 exports.createDynamicQR = async (req, res) => {
     try {
-        // Promote any temporary uploads (logo, images, etc.) to permanent storage
-        await findAndPromoteFiles(req.body);
+        if (process.env.UPLOAD_MODE === 'prod') {
+            // Promote any temporary uploads (logo, images, etc.) to permanent storage
+            await findAndPromoteFiles(req.body);
+        }
 
         const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit, categories } = req.body;
         // Explicitly promote App Store logo if in production mode
         if (process.env.UPLOAD_MODE === 'prod' && type === 'app-store') {
-            if (design?.appLogo?.url && design.appLogo.url.includes('/uploads/temp/')) {
+            if (design?.appLogo?.url && (design.appLogo.url.includes('/uploads/temp/') || design.appLogo.url.startsWith('data:'))) {
                 design.appLogo.url = await promoteToPermanent(design.appLogo.url);
             }
         }
