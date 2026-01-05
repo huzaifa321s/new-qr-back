@@ -47,10 +47,10 @@ const upload = multer({
 });
 
 // Upload logo
-exports.uploadLogo = upload.single('logo');
+exports.uploadLogo = upload.single('image');
 exports.handleLogoUpload = async (req, res) => {
     try {
-
+        console.log('file')
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);

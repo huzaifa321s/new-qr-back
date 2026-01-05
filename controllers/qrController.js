@@ -690,10 +690,15 @@ exports.createDynamicQR = async (req, res) => {
         await findAndPromoteFiles(req.body);
 
         const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit, categories } = req.body;
-
+        // Explicitly promote App Store logo if in production mode
+        if (process.env.UPLOAD_MODE === 'prod' && type === 'app-store') {
+            if (design?.appLogo?.url && design.appLogo.url.includes('/uploads/temp/')) {
+                design.appLogo.url = await promoteToPermanent(design.appLogo.url);
+            }
+        }
         // Generate shortId first
         const shortId = shortid.generate();
-
+        console.log('design', design)
         // Generate actual QR URL based on type BEFORE saving
         // Generate actual QR URL based on type BEFORE saving
         // Generate actual QR URL based on type BEFORE saving
