@@ -435,8 +435,8 @@ async function generateQRImageBuffer(content, design) {
                 else if (style === 'teardrop-tl') radii = [0, r, r, r]; // TL Sharp
                 else if (style === 'leaf-top-right') radii = [r, 0, r, r]; // TR Sharp
                 else if (style === 'leaf-top-left') radii = [0, r, r, r]; // TL Sharp
-                else if (style === 'leaf-bottom-left') radii = [r, r, r, 0]; // BL Sharp
-                else if (style === 'leaf-bottom-right') radii = [r, r, 0, r]; // BR Sharp
+                else if (style === 'leaf-bottom-left') radii = [r, 0, r, 0]; // TL & BR Rounded (Opposite diagonal)
+                else if (style === 'leaf-bottom-right') radii = [0, r, 0, r]; // TR & BL Rounded (Diagonal leaf)
                 else radii = [r, 0, r, 0];
 
                 if (ctx.roundRect) ctx.roundRect(x, y, size, size, radii);
