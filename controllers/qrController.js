@@ -692,12 +692,12 @@ exports.createDynamicQR = async (req, res) => {
         }
 
         const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit, categories } = req.body;
-        // Explicitly promote App Store logo if in production mode
-        if (process.env.UPLOAD_MODE === 'prod' && type === 'app-store') {
-            if (design?.appLogo?.url && (design.appLogo.url.includes('/uploads/temp/') || design.appLogo.url.startsWith('data:'))) {
-                design.appLogo.url = await promoteToPermanent(design.appLogo.url);
-            }
-        }
+        // // Explicitly promote App Store logo if in production mode
+        // if (process.env.UPLOAD_MODE === 'prod' && type === 'app-store') {
+        //     if (design?.appLogo?.url && (design.appLogo.url.includes('/uploads/temp/') || design.appLogo.url.startsWith('data:'))) {
+        //         design.appLogo.url = await promoteToPermanent(design.appLogo.url);
+        //     }
+        // }
         // Generate shortId first
         const shortId = shortid.generate();
         console.log('design', design)
@@ -803,7 +803,10 @@ exports.createDynamicQR = async (req, res) => {
 exports.createStaticQR = async (req, res) => {
     try {
         // Promote any temporary uploads to permanent storage
-        await findAndPromoteFiles(req.body);
+        if (process.env.UPLOAD_MODE === 'prod') {
+            // Promote any temporary uploads (logo, images, etc.) to permanent storage
+            await findAndPromoteFiles(req.body);
+        }
 
         const { type, name, data, design } = req.body;
 
@@ -951,9 +954,10 @@ exports.trackScan = async (req, res) => {
 // Update QR (Editable)
 exports.updateQR = async (req, res) => {
     try {
-        // Promote any temporary uploads to permanent storage
-        await findAndPromoteFiles(req.body);
-
+        if (process.env.UPLOAD_MODE === 'prod') {
+            // Promote any temporary uploads (logo, images, etc.) to permanent storage
+            await findAndPromoteFiles(req.body);
+        }
         const { id } = req.params;
         const { shortId, data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
 
