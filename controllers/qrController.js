@@ -10,6 +10,31 @@ const waitForDbConnection = require('../utils/waitDBConnection');
 const fastGeoip = require('fast-geoip'); // Added fast-geoip for robust fallback
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
 const geoCache = new Map();
+const codeToCountryName = (code) => {
+    if (!code) return '';
+    const c = String(code).toUpperCase();
+    const map = {
+        PK: 'Pakistan', IN: 'India', US: 'United States', GB: 'United Kingdom', AE: 'United Arab Emirates',
+        SA: 'Saudi Arabia', QA: 'Qatar', CA: 'Canada', AU: 'Australia', NZ: 'New Zealand', RU: 'Russia',
+        CN: 'China', JP: 'Japan', BD: 'Bangladesh', VN: 'Vietnam', TH: 'Thailand', ID: 'Indonesia',
+        MY: 'Malaysia', TR: 'Turkey', FR: 'France', DE: 'Germany', IT: 'Italy', ES: 'Spain', NL: 'Netherlands',
+        BE: 'Belgium', SE: 'Sweden', NO: 'Norway', DK: 'Denmark', FI: 'Finland', CH: 'Switzerland',
+        AT: 'Austria', IE: 'Ireland', SG: 'Singapore', HK: 'Hong Kong', LK: 'Sri Lanka', NG: 'Nigeria',
+        SD: 'Sudan', EG: 'Egypt', ZA: 'South Africa', MA: 'Morocco', KE: 'Kenya', TZ: 'Tanzania',
+        BR: 'Brazil', MX: 'Mexico', AR: 'Argentina', CO: 'Colombia', PE: 'Peru', CL: 'Chile',
+        PH: 'Philippines', KR: 'South Korea', TW: 'Taiwan', UA: 'Ukraine', PL: 'Poland', PT: 'Portugal',
+        RO: 'Romania', CZ: 'Czechia', HU: 'Hungary', GR: 'Greece', IL: 'Israel', KW: 'Kuwait', OM: 'Oman',
+        BH: 'Bahrain', IQ: 'Iraq', IR: 'Iran', AF: 'Afghanistan', NP: 'Nepal', MM: 'Myanmar',
+        KH: 'Cambodia', LA: 'Laos'
+    };
+    if (map[c]) return map[c];
+    try {
+        const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+        const name = regionNames.of(c);
+        if (name && name.length > 2) return name;
+    } catch (e) {}
+    return c;
+};
 
 // Helper to get client scan details (IP & Geo)
 const getScanDetails = async (req) => {
@@ -46,22 +71,12 @@ const getScanDetails = async (req) => {
     const vercelCity = req.headers['x-vercel-ip-city'];
     const vercelCountry = req.headers['x-vercel-ip-country'];
 
-    // Only use Vercel headers if BOTH are present and valid
     if (vercelCity && vercelCountry) {
-        try {
-            const city = decodeURIComponent(vercelCity);
-            let country = vercelCountry;
-
-            // Try to convert country code to full name
-            const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-            country = regionNames.of(vercelCountry) || vercelCountry;
-
+        const city = (() => { try { return decodeURIComponent(vercelCity); } catch { return vercelCity; } })();
+        const country = codeToCountryName(vercelCountry);
+        if (city && country) {
             location = `${city}, ${country}`;
             locationConfidence = 'high';
-            console.log('✅ Vercel Headers (High Confidence):', location);
-        } catch (e) {
-            console.warn('⚠️ Error parsing Vercel headers:', e.message);
-            // Fallthrough to API check if Vercel parsing fails
         }
     }
 
@@ -97,18 +112,7 @@ const getAccurateLocation = async (ip) => {
         return { location: 'Karachi, Pakistan', confidence: 'dev' };
     }
 
-    // Common Region Name Converter
-    const getCountryName = (code) => {
-        try {
-            const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-            const name = regionNames.of(code);
-            // If the name is just 2 chars (e.g. "SD"), it failed to convert or is ambiguous.
-            // Return null to trigger fallback or keep code if that's all we have.
-            return (name && name.length > 2) ? name : code;
-        } catch (e) {
-            return code;
-        }
-    };
+    const getCountryName = (code) => codeToCountryName(code);
 
     const cached = geoCache.get(ip);
     if (cached && cached.expires > Date.now()) {
