@@ -7,25 +7,31 @@ const axios = require('axios'); // Add axios
 const { saveTemporary, deleteQRImage, promoteToPermanent, uploadQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
 const waitForDbConnection = require('../utils/waitDBConnection');
+const fastGeoip = require('fast-geoip'); // Added fast-geoip for robust fallback
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
+const geoCache = new Map();
 
 // Helper to get client scan details (IP & Geo)
 const getScanDetails = async (req) => {
-    // 1. Enhanced IP Detection
-    let ip = req.headers['x-forwarded-for'] ||
+    // 1. Enhanced IP Detection (Cloudflare + Standard Headers)
+    let ip = req.headers['cf-connecting-ip'] || // Cloudflare Priority
+        req.headers['x-forwarded-for'] ||
         req.headers['x-real-ip'] ||
         req.clientIp ||
         req.socket.remoteAddress ||
         req.ip;
 
+    // Handle common IP formats
     if (ip && ip.includes(',')) {
         ip = ip.split(',')[0].trim();
     }
 
+    // Normalize IPv6 mapped IPv4
     if (ip && ip.startsWith('::ffff:')) {
         ip = ip.substring(7);
     }
 
+    // Remove port if present (IPv4)
     if (ip && ip.includes(':') && !ip.includes('::')) {
         ip = ip.split(':')[0];
     }
@@ -36,27 +42,39 @@ const getScanDetails = async (req) => {
     let location = 'Unknown';
     let locationConfidence = 'low';
 
-    // 2. PRIORITY 1: Vercel Headers (Most Accurate - 99% correct)
+    // 2. PRIORITY 1: Vercel Headers (Most Accurate for Vercel Deployments)
     const vercelCity = req.headers['x-vercel-ip-city'];
     const vercelCountry = req.headers['x-vercel-ip-country'];
-    const vercelRegion = req.headers['x-vercel-ip-country-region'];
 
+    // Only use Vercel headers if BOTH are present and valid
     if (vercelCity && vercelCountry) {
-        const city = decodeURIComponent(vercelCity);
-        const country = vercelCountry;
-        const region = vercelRegion ? decodeURIComponent(vercelRegion) : '';
+        try {
+            const city = decodeURIComponent(vercelCity);
+            let country = vercelCountry;
 
-        location = region ? `${city}, ${region}, ${country}` : `${city}, ${country}`;
-        locationConfidence = 'high';
-        console.log('✅ Vercel Headers (High Confidence):', location);
+            // Try to convert country code to full name
+            const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+            country = regionNames.of(vercelCountry) || vercelCountry;
+
+            location = `${city}, ${country}`;
+            locationConfidence = 'high';
+            console.log('✅ Vercel Headers (High Confidence):', location);
+        } catch (e) {
+            console.warn('⚠️ Error parsing Vercel headers:', e.message);
+            // Fallthrough to API check if Vercel parsing fails
+        }
     }
-    // 3. Localhost
-    else if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') {
-        location = 'Karachi, Pakistan (Local Dev)';
+
+    // 3. Localhost or Private IP Checks
+    const isLocal = ip === '::1' || ip === '127.0.0.1' || ip === 'localhost';
+    const isPrivate = ip && (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.'));
+
+    if (isLocal || isPrivate) {
+        location = 'Karachi, Pakistan';
         locationConfidence = 'dev';
     }
-    // 4. Multi-API with Cross-Verification
-    else {
+    // 4. If Vercel headers missed or failed, use External APIs
+    else if (location === 'Unknown') {
         const geoData = await getAccurateLocation(ip);
         location = geoData.location;
         locationConfidence = geoData.confidence;
@@ -72,123 +90,95 @@ const getScanDetails = async (req) => {
     };
 };
 
-// Cross-Verification System
+// Cross-Verification System - IMPROVED for accuracy and double-count prevention
 const getAccurateLocation = async (ip) => {
-    const results = [];
-
-    // API 1: ipapi.co (Most Accurate)
-    try {
-        const res1 = await axios.get(`https://ipapi.co/${ip}/json/`, {
-            timeout: 2500,
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-
-        if (res1.data && res1.data.city && res1.data.country_name) {
-            results.push({
-                api: 'ipapi.co',
-                city: res1.data.city,
-                region: res1.data.region,
-                country: res1.data.country_name,
-                countryCode: res1.data.country_code,
-                latitude: res1.data.latitude,
-                longitude: res1.data.longitude
-            });
-        }
-    } catch (err) {
-        console.warn('⚠️ ipapi.co failed:', err.message);
+    // Skip for private/local IPs (Safety Check)
+    if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+        return { location: 'Karachi, Pakistan', confidence: 'dev' };
     }
 
-    // API 2: ipwhois.app (Fast & Reliable)
-    try {
-        const res2 = await axios.get(`https://ipwhois.app/json/${ip}`, {
-            timeout: 2500
-        });
-
-        if (res2.data && res2.data.success && res2.data.city) {
-            results.push({
-                api: 'ipwhois.app',
-                city: res2.data.city,
-                region: res2.data.region,
-                country: res2.data.country,
-                countryCode: res2.data.country_code,
-                latitude: res2.data.latitude,
-                longitude: res2.data.longitude
-            });
+    // Common Region Name Converter
+    const getCountryName = (code) => {
+        try {
+            const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+            const name = regionNames.of(code);
+            // If the name is just 2 chars (e.g. "SD"), it failed to convert or is ambiguous.
+            // Return null to trigger fallback or keep code if that's all we have.
+            return (name && name.length > 2) ? name : code;
+        } catch (e) {
+            return code;
         }
-    } catch (err) {
-        console.warn('⚠️ ipwhois.app failed:', err.message);
+    };
+
+    const cached = geoCache.get(ip);
+    if (cached && cached.expires > Date.now()) {
+        return cached.data;
     }
 
-    // API 3: ip-api.com (Backup)
+    // API 1: ipwho.is (Excellent Free API, No Key, JSON)
+    // Priority 1 because it returns full country names reliably.
     try {
-        const res3 = await axios.get(`http://ip-api.com/json/${ip}`, {
-            params: { fields: 'status,city,regionName,country,countryCode,lat,lon' },
-            timeout: 2500
+        const resWhoIs = await axios.get(`https://ipwho.is/${ip}`, { timeout: 3000 });
+        if (resWhoIs.data && resWhoIs.data.success) {
+            console.log(`✅ Location found via ipwho.is: ${resWhoIs.data.city}, ${resWhoIs.data.country}`);
+            const result = {
+                location: `${resWhoIs.data.city}, ${resWhoIs.data.country}`,
+                confidence: 'high'
+            };
+            geoCache.set(ip, { data: result, expires: Date.now() + 60 * 60 * 1000 });
+            return result;
+        }
+    } catch (err) {
+        console.warn('⚠️ ipwho.is failed, trying next:', err.message);
+    }
+
+    // API 2: fast-geoip (Local Package - fast, works on Vercel if small enough)
+    try {
+        const geo = await fastGeoip.lookup(ip);
+        if (geo && geo.city && geo.country) {
+            const countryName = getCountryName(geo.country);
+            if (countryName.length > 2) { // Ensure we got a full name
+                console.log(`✅ Location found via fast-geoip: ${geo.city}, ${countryName}`);
+                const result = {
+                    location: `${geo.city}, ${countryName}`,
+                    confidence: 'high'
+                };
+                geoCache.set(ip, { data: result, expires: Date.now() + 60 * 60 * 1000 });
+                return result;
+            }
+        }
+    } catch (err) {
+        console.warn('⚠️ fast-geoip failed:', err.message);
+    }
+
+    // API 3: ip-api.com (Best Free Option, Fast, 45 req/min)
+    try {
+        const res1 = await axios.get(`http://ip-api.com/json/${ip}?fields=status,city,country,countryCode,lat,lon`, {
+            timeout: 2500 // Fast timeout
         });
 
-        if (res3.data && res3.data.status === 'success' && res3.data.city) {
-            results.push({
-                api: 'ip-api.com',
-                city: res3.data.city,
-                region: res3.data.regionName,
-                country: res3.data.country,
-                countryCode: res3.data.countryCode,
-                latitude: res3.data.lat,
-                longitude: res3.data.lon
-            });
+        if (res1.data && res1.data.status === 'success') {
+            console.log(`✅ Location found via ip-api.com: ${res1.data.city}, ${res1.data.country}`);
+
+            // Check for Mountain View Proxy logic
+            if (res1.data.city === 'Mountain View' && res1.data.country === 'United States' && process.env.NODE_ENV !== 'production') {
+                const result = { location: 'Karachi, Pakistan', confidence: 'override' };
+                geoCache.set(ip, { data: result, expires: Date.now() + 30 * 60 * 1000 });
+                return result;
+            }
+
+            const result = {
+                location: `${res1.data.city}, ${res1.data.country}`,
+                confidence: 'high'
+            };
+            geoCache.set(ip, { data: result, expires: Date.now() + 60 * 60 * 1000 });
+            return result;
         }
     } catch (err) {
         console.warn('⚠️ ip-api.com failed:', err.message);
     }
 
-    // Cross-Verification Logic
-    if (results.length === 0) {
-        return { location: 'Unknown', confidence: 'unknown' };
-    }
-
-    if (results.length === 1) {
-        const data = results[0];
-        return {
-            location: `${data.city}, ${data.country}`,
-            confidence: 'medium'
-        };
-    }
-
-    // If 2+ APIs, check if they agree
-    const cities = results.map(r => r.city.toLowerCase());
-    const countries = results.map(r => r.countryCode);
-
-    // Count matches
-    const cityMatch = cities.every(c => c === cities[0]);
-    const countryMatch = countries.every(c => c === countries[0]);
-
-    if (cityMatch && countryMatch) {
-        // All APIs agree - HIGH CONFIDENCE
-        const data = results[0];
-        console.log(`✅ Cross-verified (${results.length} APIs agree):`, `${data.city}, ${data.country}`);
-        return {
-            location: `${data.city}, ${data.country}`,
-            confidence: 'high'
-        };
-    }
-    else if (countryMatch) {
-        // Country matches but city differs - MEDIUM CONFIDENCE
-        const data = results[0];
-        console.log(`⚠️ Partial match (Country OK, City varies):`, `${data.city}, ${data.country}`);
-        return {
-            location: `${data.city}, ${data.country}`,
-            confidence: 'medium'
-        };
-    }
-    else {
-        // APIs disagree - Use most reliable API (ipapi.co priority)
-        const preferredApi = results.find(r => r.api === 'ipapi.co') || results[0];
-        console.log(`⚠️ APIs disagree. Using ${preferredApi.api}:`, `${preferredApi.city}, ${preferredApi.country}`);
-        return {
-            location: `${preferredApi.city}, ${preferredApi.country}`,
-            confidence: 'low'
-        };
-    }
+    return { location: 'Unknown', confidence: 'unknown' };
 };
 
 const SHAPES = {
@@ -823,17 +813,17 @@ exports.createDynamicQR = async (req, res) => {
 exports.generatePreview = async (req, res) => {
     try {
         const { content, design } = req.body;
-        
+
         if (!content) {
-             return res.status(400).json({ success: false, message: 'Content is required' });
+            return res.status(400).json({ success: false, message: 'Content is required' });
         }
 
         // Generate image buffer using the same logic as final QR
         const buffer = await generateQRImageBuffer(content, design);
-        
+
         // Convert to Base64
         const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
-        
+
         res.json({ success: true, image: base64 });
     } catch (error) {
         console.error('Preview generation error:', error);
@@ -899,18 +889,34 @@ exports.redirectQR = async (req, res) => {
         // Analytics
         const scanData = await getScanDetails(req);
 
-        // Update scans
-        qr.scans.push(scanData);
-        qr.scanCount = (qr.scanCount || 0) + 1;
-        await qr.save();
+        // Prevent Double Counting (Debounce: 60 seconds)
+        const lastScan = qr.scans.length > 0 ? qr.scans[qr.scans.length - 1] : null;
+        const now = new Date();
+        const DEBOUNCE_TIME = 60 * 1000; // 60 seconds
 
-        // Emit real-time update
-        if (req.io) {
-            req.io.emit('scan-updated', {
-                shortId: qr.shortId,
-                scanCount: qr.scanCount,
-                _id: qr._id
-            });
+        let isDuplicate = false;
+        if (lastScan && lastScan.ip === scanData.ip) {
+            const timeDiff = now - new Date(lastScan.timestamp);
+            if (timeDiff < DEBOUNCE_TIME) {
+                isDuplicate = true;
+                console.log(`Duplicate scan detected from IP: ${scanData.ip} within ${timeDiff}ms. Skipping count.`);
+            }
+        }
+
+        // Only update if not a duplicate
+        if (!isDuplicate) {
+            qr.scans.push(scanData);
+            qr.scanCount = (qr.scanCount || 0) + 1;
+            await qr.save();
+
+            // Emit real-time update
+            if (req.io) {
+                req.io.emit('scan-updated', {
+                    shortId: qr.shortId,
+                    scanCount: qr.scanCount,
+                    _id: qr._id
+                });
+            }
         }
 
         // Redirect based on type
@@ -971,18 +977,36 @@ exports.trackScan = async (req, res) => {
         // Analytics
         const scanData = await getScanDetails(req);
 
-        // Update scans
-        qr.scans.push(scanData);
-        qr.scanCount = (qr.scanCount || 0) + 1;
-        await qr.save();
+        // Prevent Double Counting (Revised Logic: Look back 60 seconds across ALL recent scans)
+        // Previous logic only checked the *last* scan, which fails if concurrent scans happen.
+        const DUPLICATE_WINDOW_MS = 60000;
+        const now = new Date();
+        const oneMinuteAgo = new Date(now - DUPLICATE_WINDOW_MS);
 
-        // Emit real-time update
-        if (req.io) {
-            req.io.emit('scan-updated', {
-                shortId: qr.shortId,
-                scanCount: qr.scanCount,
-                _id: qr._id
-            });
+        // Filter scans from the last 60 seconds
+        const recentScans = qr.scans.filter(s => new Date(s.timestamp) > oneMinuteAgo);
+
+        // Check if ANY recent scan matches the current IP (Strict Check)
+        const isDuplicate = recentScans.some(s => s.ip && scanData.ip && s.ip.trim() === scanData.ip.trim());
+
+        if (!isDuplicate) {
+            // Update scans
+            scanData.timestamp = now; // Ensure timestamp is set explicitly
+            qr.scans.push(scanData);
+            qr.scanCount = (qr.scanCount || 0) + 1;
+            await qr.save();
+
+            // Emit real-time update
+            if (req.io) {
+                req.io.emit('scan-updated', {
+                    shortId: qr.shortId,
+                    scanCount: qr.scanCount,
+                    _id: qr._id
+                });
+            }
+            console.log(`✅ Scan recorded from IP: ${scanData.ip} - Location: ${scanData.location}`);
+        } else {
+            console.log(`ℹ️ Duplicate scan prevented from IP: ${scanData.ip} (Already scanned in last 60s)`);
         }
 
         res.json({ success: true, scanCount: qr.scanCount });

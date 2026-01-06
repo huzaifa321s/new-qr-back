@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
 
 const connectDB = async () => {
     try {
+        // Force Google DNS to resolve SRV records (fixes ECONNREFUSED issues on some networks)
+        dns.setServers(['8.8.8.8', '8.8.4.4']);
+
         if (!process.env.MONGODB_URI) {
             console.error('MONGODB_URI is not defined in .env file');
             return;
