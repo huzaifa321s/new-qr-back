@@ -7,182 +7,422 @@ const axios = require('axios'); // Add axios
 const { saveTemporary, deleteQRImage, promoteToPermanent, uploadQRImage } = require('../utils/blobStorage');
 const PDFDocument = require('pdfkit');
 const waitForDbConnection = require('../utils/waitDBConnection');
-const fastGeoip = require('fast-geoip'); // Added fast-geoip for robust fallback
+const countries = require('i18n-iso-countries');
 // geoip-lite removed to fix Vercel bundle size error (250MB limit exceeded)
+// Register English language
+countries.registerLocale(require('i18n-iso-countries/langs/en.json'));
+
+// Geo cache
 const geoCache = new Map();
+const CACHE_DURATION = 3600000; // 1 hour
+
+// Convert country code to name using i18n-iso-countries
 const codeToCountryName = (code) => {
-    if (!code) return '';
-    const c = String(code).toUpperCase();
-    const map = {
-        PK: 'Pakistan', IN: 'India', US: 'United States', GB: 'United Kingdom', AE: 'United Arab Emirates',
-        SA: 'Saudi Arabia', QA: 'Qatar', CA: 'Canada', AU: 'Australia', NZ: 'New Zealand', RU: 'Russia',
-        CN: 'China', JP: 'Japan', BD: 'Bangladesh', VN: 'Vietnam', TH: 'Thailand', ID: 'Indonesia',
-        MY: 'Malaysia', TR: 'Turkey', FR: 'France', DE: 'Germany', IT: 'Italy', ES: 'Spain', NL: 'Netherlands',
-        BE: 'Belgium', SE: 'Sweden', NO: 'Norway', DK: 'Denmark', FI: 'Finland', CH: 'Switzerland',
-        AT: 'Austria', IE: 'Ireland', SG: 'Singapore', HK: 'Hong Kong', LK: 'Sri Lanka', NG: 'Nigeria',
-        SD: 'Sudan', EG: 'Egypt', ZA: 'South Africa', MA: 'Morocco', KE: 'Kenya', TZ: 'Tanzania',
-        BR: 'Brazil', MX: 'Mexico', AR: 'Argentina', CO: 'Colombia', PE: 'Peru', CL: 'Chile',
-        PH: 'Philippines', KR: 'South Korea', TW: 'Taiwan', UA: 'Ukraine', PL: 'Poland', PT: 'Portugal',
-        RO: 'Romania', CZ: 'Czechia', HU: 'Hungary', GR: 'Greece', IL: 'Israel', KW: 'Kuwait', OM: 'Oman',
-        BH: 'Bahrain', IQ: 'Iraq', IR: 'Iran', AF: 'Afghanistan', NP: 'Nepal', MM: 'Myanmar',
-        KH: 'Cambodia', LA: 'Laos'
-    };
-    if (map[c]) return map[c];
-    try {
-        const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-        const name = regionNames.of(c);
-        if (name && name.length > 2) return name;
-    } catch (e) {}
-    return c;
+  if (!code) return '';
+  
+  const c = String(code).toUpperCase();
+  
+  // Use i18n-iso-countries package for complete coverage
+  const countryName = countries.getName(c, 'en');
+  
+  if (countryName) {
+    return countryName;
+  }
+  
+  // Fallback: Return code itself if not found
+  return c;
 };
 
-// Helper to get client scan details (IP & Geo)
+// You can also get country name in other languages
+const codeToCountryNameInLanguage = (code, language = 'en') => {
+  if (!code) return '';
+  
+  const c = String(code).toUpperCase();
+  
+  // Supported languages: en, de, fr, es, pt, it, ar, ru, zh, ja, ko, etc.
+  const countryName = countries.getName(c, language);
+  
+  return countryName || c;
+};
+
+// Get all countries (if needed for dropdown, etc.)
+const getAllCountries = () => {
+  return countries.getNames('en');
+};
+
+// Extract IP from request
+const extractIP = (req) => {
+  let ip = req.headers['cf-connecting-ip'] || 
+           req.headers['x-forwarded-for'] || 
+           req.headers['x-real-ip'] || 
+           req.headers['x-client-ip'] ||
+           req.clientIp || 
+           req.socket.remoteAddress || 
+           req.ip;
+
+  if (ip && ip.includes(',')) {
+    ip = ip.split(',')[0].trim();
+  }
+  
+  if (ip && ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
+  
+  if (ip && ip.includes(':') && !ip.includes('::')) {
+    const parts = ip.split(':');
+    if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+      ip = parts[0];
+    }
+  }
+
+  return ip;
+};
+
+// Check if private/local IP
+const isPrivateIP = (ip) => {
+  if (!ip) return true;
+  
+  if (ip === '::1' || ip === '127.0.0.1' || ip === 'localhost') return true;
+  
+  if (ip.startsWith('192.168.') || 
+      ip.startsWith('10.') || 
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) {
+    return true;
+  }
+  
+  return false;
+};
+
+// Get location using IPinfo.io (Premium Service)
+const getLocationFromIPInfo = async (ip) => {
+  const token = process.env.IPINFO_TOKEN;
+  
+  if (!token) {
+    console.warn('⚠️ IPINFO_TOKEN not set in environment variables');
+    return null;
+  }
+
+  try {
+    const res = await axios.get(`https://ipinfo.io/${ip}?token=${token}`, {
+      timeout: 5000,
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    if (res.data && res.data.city && res.data.country) {
+      const countryName = codeToCountryName(res.data.country);
+      const location = `${res.data.city}, ${countryName}`;
+      
+      console.log(`✅ IPinfo.io: ${location} (${res.data.country})`);
+      console.log(`   Organization: ${res.data.org || 'N/A'}`);
+      console.log(`   Region: ${res.data.region || 'N/A'}`);
+      
+      return {
+        location,
+        confidence: 'high',
+        details: {
+          city: res.data.city,
+          region: res.data.region,
+          country: countryName,
+          countryCode: res.data.country,
+          org: res.data.org,
+          postal: res.data.postal,
+          timezone: res.data.timezone,
+          loc: res.data.loc // lat,long
+        }
+      };
+    }
+    
+    return null;
+  } catch (err) {
+    console.error('❌ IPinfo.io error:', err.message);
+    if (err.response) {
+      console.error('   Status:', err.response.status);
+      console.error('   Data:', err.response.data);
+    }
+    return null;
+  }
+};
+
+// Fallback: Free APIs (if IPinfo fails or no token)
+const getLocationFromFreeAPIs = async (ip) => {
+  // Try ipapi.co first (best free option)
+  try {
+    const res = await axios.get(`https://ipapi.co/${ip}/json/`, { 
+      timeout: 4000,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    
+    if (res.data && res.data.city && res.data.country_code) {
+      const countryName = codeToCountryName(res.data.country_code);
+      const location = `${res.data.city}, ${countryName}`;
+      console.log(`✅ Fallback (ipapi.co): ${location} (${res.data.country_code})`);
+      return { 
+        location, 
+        confidence: 'medium',
+        details: {
+          city: res.data.city,
+          region: res.data.region,
+          country: countryName,
+          countryCode: res.data.country_code
+        }
+      };
+    }
+  } catch (err) {
+    console.warn('⚠️ ipapi.co failed');
+  }
+
+  // Try ip-api.com as final fallback
+  try {
+    const res = await axios.get(
+      `http://ip-api.com/json/${ip}?fields=status,city,country,countryCode,regionName`, 
+      { timeout: 3000 }
+    );
+    
+    if (res.data && res.data.status === 'success') {
+      const countryName = codeToCountryName(res.data.countryCode);
+      const location = `${res.data.city}, ${countryName}`;
+      console.log(`✅ Fallback (ip-api.com): ${location} (${res.data.countryCode})`);
+      return { 
+        location, 
+        confidence: 'medium',
+        details: {
+          city: res.data.city,
+          region: res.data.regionName,
+          country: countryName,
+          countryCode: res.data.countryCode
+        }
+      };
+    }
+  } catch (err) {
+    console.warn('⚠️ ip-api.com failed');
+  }
+
+  // Try ipwho.is as last resort
+  try {
+    const res = await axios.get(`https://ipwho.is/${ip}`, { 
+      timeout: 4000,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    
+    if (res.data && res.data.success && res.data.city && res.data.country_code) {
+      const countryName = codeToCountryName(res.data.country_code);
+      const location = `${res.data.city}, ${countryName}`;
+      console.log(`✅ Fallback (ipwho.is): ${location} (${res.data.country_code})`);
+      return { 
+        location, 
+        confidence: 'medium',
+        details: {
+          city: res.data.city,
+          region: res.data.region,
+          country: countryName,
+          countryCode: res.data.country_code
+        }
+      };
+    }
+  } catch (err) {
+    console.warn('⚠️ ipwho.is failed');
+  }
+
+  return null;
+};
+
+// Main function: Get scan details
 const getScanDetails = async (req) => {
-    // 1. Enhanced IP Detection (Cloudflare + Standard Headers)
-    let ip = req.headers['cf-connecting-ip'] || // Cloudflare Priority
-        req.headers['x-forwarded-for'] ||
-        req.headers['x-real-ip'] ||
-        req.clientIp ||
-        req.socket.remoteAddress ||
-        req.ip;
+  const ip = extractIP(req);
+  console.log('📍 Extracted IP:', ip);
 
-    // Handle common IP formats
-    if (ip && ip.includes(',')) {
-        ip = ip.split(',')[0].trim();
+  const userAgent = req.useragent;
+  let location = 'Unknown';
+  let locationConfidence = 'low';
+  let locationDetails = null;
+
+  // Priority 1: Vercel Headers (Most reliable on Vercel)
+  const vercelCity = req.headers['x-vercel-ip-city'];
+  const vercelCountry = req.headers['x-vercel-ip-country'];
+  
+  if (vercelCity && vercelCountry) {
+    try {
+      const city = decodeURIComponent(vercelCity);
+      const country = codeToCountryName(vercelCountry);
+      
+      if (city && country) {
+        location = `${city}, ${country}`;
+        locationConfidence = 'high';
+        console.log('✅ Vercel Headers:', location, `(${vercelCountry})`);
+        
+        return {
+          ip: ip || 'Unknown',
+          device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+          os: userAgent ? userAgent.os : 'Unknown',
+          browser: userAgent ? userAgent.browser : 'Unknown',
+          location,
+          locationConfidence,
+          locationDetails: {
+            city,
+            country,
+            countryCode: vercelCountry
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('⚠️ Vercel header parsing failed');
     }
+  }
 
-    // Normalize IPv6 mapped IPv4
-    if (ip && ip.startsWith('::ffff:')) {
-        ip = ip.substring(7);
-    }
-
-    // Remove port if present (IPv4)
-    if (ip && ip.includes(':') && !ip.includes('::')) {
-        ip = ip.split(':')[0];
-    }
-
-    console.log('📍 Extracted IP:', ip);
-
-    const userAgent = req.useragent;
-    let location = 'Unknown';
-    let locationConfidence = 'low';
-
-    // 2. PRIORITY 1: Vercel Headers (Most Accurate for Vercel Deployments)
-    const vercelCity = req.headers['x-vercel-ip-city'];
-    const vercelCountry = req.headers['x-vercel-ip-country'];
-
-    if (vercelCity && vercelCountry) {
-        const city = (() => { try { return decodeURIComponent(vercelCity); } catch { return vercelCity; } })();
-        const country = codeToCountryName(vercelCountry);
-        if (city && country) {
-            location = `${city}, ${country}`;
-            locationConfidence = 'high';
-        }
-    }
-
-    // 3. Localhost or Private IP Checks
-    const isLocal = ip === '::1' || ip === '127.0.0.1' || ip === 'localhost';
-    const isPrivate = ip && (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.'));
-
-    if (isLocal || isPrivate) {
-        location = 'Karachi, Pakistan';
-        locationConfidence = 'dev';
-    }
-    // 4. If Vercel headers missed or failed, use External APIs
-    else if (location === 'Unknown') {
-        const geoData = await getAccurateLocation(ip);
-        location = geoData.location;
-        locationConfidence = geoData.confidence;
-    }
-
+  // Priority 2: Check if private/local IP
+  if (isPrivateIP(ip)) {
+    location = 'Local Network';
+    locationConfidence = 'dev';
+    console.log('🏠 Local/Private IP detected');
+    
     return {
-        ip: ip || 'Unknown',
-        device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
-        os: userAgent ? userAgent.os : 'Unknown',
-        browser: userAgent ? userAgent.browser : 'Unknown',
-        location: location,
-        locationConfidence: locationConfidence // 'high', 'medium', 'low', 'unknown'
+      ip: ip || 'Unknown',
+      device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+      os: userAgent ? userAgent.os : 'Unknown',
+      browser: userAgent ? userAgent.browser : 'Unknown',
+      location,
+      locationConfidence
     };
+  }
+
+  // Priority 3: Check cache
+  const cached = geoCache.get(ip);
+  if (cached && cached.expires > Date.now()) {
+    console.log('📦 Cache hit for', ip);
+    return {
+      ip,
+      device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+      os: userAgent ? userAgent.os : 'Unknown',
+      browser: userAgent ? userAgent.browser : 'Unknown',
+      location: cached.location,
+      locationConfidence: cached.confidence,
+      locationDetails: cached.details
+    };
+  }
+
+  // Priority 4: IPinfo.io (Premium Service)
+  console.log('🌍 Querying IPinfo.io for', ip);
+  const ipinfoResult = await getLocationFromIPInfo(ip);
+  
+  if (ipinfoResult) {
+    location = ipinfoResult.location;
+    locationConfidence = ipinfoResult.confidence;
+    locationDetails = ipinfoResult.details;
+    
+    // Cache for 1 hour
+    geoCache.set(ip, {
+      location,
+      confidence: locationConfidence,
+      details: locationDetails,
+      expires: Date.now() + CACHE_DURATION
+    });
+  } else {
+    // Priority 5: Fallback to free APIs
+    console.log('🔄 Falling back to free APIs...');
+    const fallbackResult = await getLocationFromFreeAPIs(ip);
+    
+    if (fallbackResult) {
+      location = fallbackResult.location;
+      locationConfidence = fallbackResult.confidence;
+      locationDetails = fallbackResult.details;
+      
+      // Cache for 30 minutes (shorter for fallback)
+      geoCache.set(ip, {
+        location,
+        confidence: locationConfidence,
+        details: locationDetails,
+        expires: Date.now() + (CACHE_DURATION / 2)
+      });
+    }
+  }
+
+  return {
+    ip,
+    device: userAgent ? (userAgent.isMobile ? 'Mobile' : 'Desktop') : 'Unknown',
+    os: userAgent ? userAgent.os : 'Unknown',
+    browser: userAgent ? userAgent.browser : 'Unknown',
+    location,
+    locationConfidence,
+    ...(locationDetails && { locationDetails })
+  };
 };
-
-// Cross-Verification System - IMPROVED for accuracy and double-count prevention
+// Improved Geo API System (NO PACKAGES - External APIs Only)
 const getAccurateLocation = async (ip) => {
-    // Skip for private/local IPs (Safety Check)
-    if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
-        return { location: 'Karachi, Pakistan', confidence: 'dev' };
+  // Skip invalid IPs
+  if (!ip || ip === '::1' || ip === '127.0.0.1' || 
+      ip.startsWith('192.168.') || ip.startsWith('10.') || 
+      ip.startsWith('172.16.') || ip.startsWith('172.31.')) {
+    return { location: 'Karachi, Pakistan', confidence: 'dev' };
+  }
+
+  // Check cache first
+  const cached = geoCache.get(ip);
+  if (cached && cached.expires > Date.now()) {
+    console.log('📦 Using cached location for', ip);
+    return cached.data;
+  }
+
+  console.log('🌍 Fetching location for IP:', ip);
+
+  // API 1: ipwho.is (Best - No rate limits, accurate, no key needed)
+  try {
+    const res = await axios.get(`https://ipwho.is/${ip}`, { 
+      timeout: 4000,
+      headers: { 'User-Agent': 'QRCodeApp/1.0' }
+    });
+    
+    if (res.data && res.data.success && res.data.city && res.data.country) {
+      const location = `${res.data.city}, ${res.data.country}`;
+      console.log(`✅ ipwho.is: ${location}`);
+      
+      const result = { location, confidence: 'high' };
+      geoCache.set(ip, { data: result, expires: Date.now() + 3600000 }); // 1 hour
+      return result;
     }
+  } catch (err) {
+    console.warn('⚠️ ipwho.is failed:', err.message);
+  }
 
-    const getCountryName = (code) => codeToCountryName(code);
-
-    const cached = geoCache.get(ip);
-    if (cached && cached.expires > Date.now()) {
-        return cached.data;
+  // API 2: ip-api.com (Backup - 45 req/min free)
+  try {
+    const res = await axios.get(
+      `http://ip-api.com/json/${ip}?fields=status,city,country,countryCode,query`, 
+      { timeout: 3000 }
+    );
+    
+    if (res.data && res.data.status === 'success') {
+      const location = `${res.data.city}, ${res.data.country}`;
+      console.log(`✅ ip-api.com: ${location}`);
+      
+      const result = { location, confidence: 'high' };
+      geoCache.set(ip, { data: result, expires: Date.now() + 3600000 });
+      return result;
     }
+  } catch (err) {
+    console.warn('⚠️ ip-api.com failed:', err.message);
+  }
 
-    // API 1: ipwho.is (Excellent Free API, No Key, JSON)
-    // Priority 1 because it returns full country names reliably.
-    try {
-        const resWhoIs = await axios.get(`https://ipwho.is/${ip}`, { timeout: 3000 });
-        if (resWhoIs.data && resWhoIs.data.success) {
-            console.log(`✅ Location found via ipwho.is: ${resWhoIs.data.city}, ${resWhoIs.data.country}`);
-            const result = {
-                location: `${resWhoIs.data.city}, ${resWhoIs.data.country}`,
-                confidence: 'high'
-            };
-            geoCache.set(ip, { data: result, expires: Date.now() + 60 * 60 * 1000 });
-            return result;
-        }
-    } catch (err) {
-        console.warn('⚠️ ipwho.is failed, trying next:', err.message);
+  // API 3: ipapi.co (Final Fallback - 1000 req/day free)
+  try {
+    const res = await axios.get(`https://ipapi.co/${ip}/json/`, { 
+      timeout: 3000,
+      headers: { 'User-Agent': 'QRCodeApp/1.0' }
+    });
+    
+    if (res.data && res.data.city && res.data.country_name) {
+      const location = `${res.data.city}, ${res.data.country_name}`;
+      console.log(`✅ ipapi.co: ${location}`);
+      
+      const result = { location, confidence: 'medium' };
+      geoCache.set(ip, { data: result, expires: Date.now() + 3600000 });
+      return result;
     }
+  } catch (err) {
+    console.warn('⚠️ ipapi.co failed:', err.message);
+  }
 
-    // API 2: fast-geoip (Local Package - fast, works on Vercel if small enough)
-    try {
-        const geo = await fastGeoip.lookup(ip);
-        if (geo && geo.city && geo.country) {
-            const countryName = getCountryName(geo.country);
-            if (countryName.length > 2) { // Ensure we got a full name
-                console.log(`✅ Location found via fast-geoip: ${geo.city}, ${countryName}`);
-                const result = {
-                    location: `${geo.city}, ${countryName}`,
-                    confidence: 'high'
-                };
-                geoCache.set(ip, { data: result, expires: Date.now() + 60 * 60 * 1000 });
-                return result;
-            }
-        }
-    } catch (err) {
-        console.warn('⚠️ fast-geoip failed:', err.message);
-    }
-
-    // API 3: ip-api.com (Best Free Option, Fast, 45 req/min)
-    try {
-        const res1 = await axios.get(`http://ip-api.com/json/${ip}?fields=status,city,country,countryCode,lat,lon`, {
-            timeout: 2500 // Fast timeout
-        });
-
-        if (res1.data && res1.data.status === 'success') {
-            console.log(`✅ Location found via ip-api.com: ${res1.data.city}, ${res1.data.country}`);
-
-            // Check for Mountain View Proxy logic
-            if (res1.data.city === 'Mountain View' && res1.data.country === 'United States' && process.env.NODE_ENV !== 'production') {
-                const result = { location: 'Karachi, Pakistan', confidence: 'override' };
-                geoCache.set(ip, { data: result, expires: Date.now() + 30 * 60 * 1000 });
-                return result;
-            }
-
-            const result = {
-                location: `${res1.data.city}, ${res1.data.country}`,
-                confidence: 'high'
-            };
-            geoCache.set(ip, { data: result, expires: Date.now() + 60 * 60 * 1000 });
-            return result;
-        }
-    } catch (err) {
-        console.warn('⚠️ ip-api.com failed:', err.message);
-    }
-
-    return { location: 'Unknown', confidence: 'unknown' };
+  console.error('❌ All geolocation APIs failed for IP:', ip);
+  return { location: 'Unknown', confidence: 'unknown' };
 };
 
 const SHAPES = {
