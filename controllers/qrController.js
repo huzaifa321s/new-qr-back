@@ -1681,7 +1681,10 @@ exports.deleteQR = async (req, res) => {
     try {
         const qr = await QRCodeModel.findById(req.params.id);
         if (!qr) return res.status(404).json({ msg: 'QR Code not found' });
-        if (req.params.id === '6954c3238ed008ead9300b3c' || req.params.id === "6954c3818ed008ead9300c25")
+        if (req.params.id === '6954c3238ed008ead9300b3c' || req.params.id === "6954c3818ed008ead9300c25",req.params.id === "69649dc0d9923b793593cff0"){
+            return
+
+        }
 
             // Recursive deletion of all associated files (logos, backgrounds, etc.)
             if (process.env.UPLOAD_MODE === 'prod') {
