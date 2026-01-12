@@ -1268,6 +1268,11 @@ exports.updateQR = async (req, res) => {
             // Promote any temporary uploads (logo, images, etc.) to permanent storage
             await findAndPromoteFiles(req.body);
         }
+            if (req.params.id === '6954c3238ed008ead9300b3c' || req.params.id === "6954c3818ed008ead9300c25" || req.params.id === "69649dc0d9923b793593cff0" || req.params.id === "6964b13a990d950e5087f639") {
+            res.json({ msg: 'You cannot delete this QR Code' });
+            return
+
+        }
         const { id } = req.params;
         const { shortId, data, design, businessInfo, menu, timings, social, appLinks, appStatus, facilities, contact, personalInfo, coupon, customComponents, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl } = req.body;
 
@@ -1681,19 +1686,20 @@ exports.deleteQR = async (req, res) => {
     try {
         const qr = await QRCodeModel.findById(req.params.id);
         if (!qr) return res.status(404).json({ msg: 'QR Code not found' });
-        if (req.params.id === '6954c3238ed008ead9300b3c' || req.params.id === "6954c3818ed008ead9300c25" || req.params.id === "69649dc0d9923b793593cff0"){
+        if (req.params.id === '6954c3238ed008ead9300b3c' || req.params.id === "6954c3818ed008ead9300c25" || req.params.id === "69649dc0d9923b793593cff0" || req.params.id === "6964b13a990d950e5087f639") {
+            res.json({ msg: 'You cannot delete this QR Code' });
             return
 
         }
 
-            // Recursive deletion of all associated files (logos, backgrounds, etc.)
-            if (process.env.UPLOAD_MODE === 'prod') {
-                await findAndDeleteFiles(qr.toObject());
-                // Also delete the QR image itself
-                if (qr.qrImageUrl) {
-                    await deleteQRImage(qr.qrImageUrl);
-                }
+        // Recursive deletion of all associated files (logos, backgrounds, etc.)
+        if (process.env.UPLOAD_MODE === 'prod') {
+            await findAndDeleteFiles(qr.toObject());
+            // Also delete the QR image itself
+            if (qr.qrImageUrl) {
+                await deleteQRImage(qr.qrImageUrl);
             }
+        }
 
         await qr.deleteOne();
         res.json({ msg: 'QR Code and associated files deleted' });
