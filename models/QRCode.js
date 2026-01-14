@@ -13,6 +13,10 @@ const QRCodeSchema = new mongoose.Schema({
             'event', 'product-page', 'dynamic-url', 'video', 'image', 'custom-type', 'static', 'more'
         ]
     },
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
     name: { type: String },
     data: {
         type: mongoose.Schema.Types.Mixed,

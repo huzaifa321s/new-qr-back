@@ -49,6 +49,7 @@ if (process.env.VERCEL === '1') {
 
 // Routes
 app.use('/api/qr', require('./routes/qrRoutes'));
+app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
 

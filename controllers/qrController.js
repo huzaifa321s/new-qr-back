@@ -946,12 +946,10 @@ exports.createDynamicQR = async (req, res) => {
         }
 
         const { type, name, data, design, businessInfo, menu, timings, social, isBusinessPage, appLinks, appStatus, customComponents, coupon, facilities, contact, personalInfo, exchange, openingHours, basicInfo, form, customFields, thankYou, rating, reviews, shareOption, pdf, links, socialLinks, infoFields, eventSchedule, venue, contactInfo, productContent, video, feedback, images, dynamicUrl, password, passwordExpiry, scanLimitEnabled, scanLimit, categories } = req.body;
-        // // Explicitly promote App Store logo if in production mode
-        // if (process.env.UPLOAD_MODE === 'prod' && type === 'app-store') {
-        //     if (design?.appLogo?.url && (design.appLogo.url.includes('/uploads/temp/') || design.appLogo.url.startsWith('data:'))) {
-        //         design.appLogo.url = await promoteToPermanent(design.appLogo.url);
-        //     }
-        // }
+
+        // Get user from request (set by auth middleware)
+        const user = req.user.id;
+
         // Generate shortId first
         const shortId = shortid.generate();
         console.log('design', design)
@@ -972,6 +970,7 @@ exports.createDynamicQR = async (req, res) => {
         const newQR = new QRCodeModel({
             type,
             name,
+            user, // Add user reference
             data: qrContent, // Use actual QR URL instead of placeholder
             design,
             businessInfo,
@@ -1686,6 +1685,12 @@ exports.deleteQR = async (req, res) => {
     try {
         const qr = await QRCodeModel.findById(req.params.id);
         if (!qr) return res.status(404).json({ msg: 'QR Code not found' });
+        
+        // Check ownership
+        if (req.user.role !== 'admin' && qr.user.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'Not authorized to view this QR code' });
+        }
+        
         if (req.params.id === '6954c3238ed008ead9300b3c' || req.params.id === "6954c3818ed008ead9300c25" || req.params.id === "69649dc0d9923b793593cff0" || req.params.id === "6964b13a990d950e5087f639") {
             res.json({ msg: 'You cannot delete this QR Code' });
             return
