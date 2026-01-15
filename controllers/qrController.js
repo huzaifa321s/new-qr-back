@@ -2,6 +2,7 @@ const QRCode = require('qrcode');
 const { createCanvas, loadImage, registerFont, Path2D } = require('canvas');
 const sharp = require('sharp');
 const QRCodeModel = require('../models/QRCode');
+const User = require('../models/User');
 const shortid = require('shortid');
 const axios = require('axios'); // Add axios
 const { saveTemporary, deleteQRImage, promoteToPermanent, uploadQRImage } = require('../utils/blobStorage');
@@ -1278,6 +1279,11 @@ exports.updateQR = async (req, res) => {
         const qr = await QRCodeModel.findById(id);
         if (!qr) return res.status(404).send('QR Code not found');
 
+        // Check ownership
+        if (req.user.role !== 'admin' && qr.user.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'Not authorized to edit this QR code' });
+        }
+
         const oldImageUrl = qr.qrImageUrl;
         const oldShortId = qr.shortId;
         const isShortIdChanged = shortId && shortId !== oldShortId;
@@ -1421,10 +1427,27 @@ exports.listQRs = async (req, res) => {
         const skip = (page - 1) * limit;
 
         // Filter parameters
-        const { type, search, startDate, endDate, sort, tab } = req.query;
+        const { type, search, startDate, endDate, sort, tab, owner } = req.query;
 
         // Build query
         let query = {};
+
+        // Role-based access control
+        // If not admin, only show own QR codes
+        if (req.user.role !== 'admin') {
+            query.user = req.user.id;
+        } else {
+            // Admin filters
+            if (owner === 'me') {
+                query.user = req.user.id;
+            } else if (owner === 'user') {
+                // Filter by User Role (Regular Users)
+                const regularUsers = await User.find({ role: 'user' }).select('_id');
+                const userIds = regularUsers.map(u => u._id);
+                query.user = { $in: userIds };
+            }
+            // 'all' includes everyone (no filter on user)
+        }
 
         // Type filter
         if (type && type !== 'All types') {
@@ -1479,6 +1502,7 @@ exports.listQRs = async (req, res) => {
 
         // Fetch QR codes with pagination and filters
         const qrs = await QRCodeModel.find(query)
+            .populate('user', 'name email')
             .sort(sortOption)
             .skip(skip)
             .limit(limit);

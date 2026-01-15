@@ -52,6 +52,7 @@ app.use('/api/qr', require('./routes/qrRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 
 // Redirect Route
 app.get('/:shortId', qrController.redirectQR);
