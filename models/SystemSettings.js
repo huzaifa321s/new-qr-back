@@ -19,7 +19,7 @@ const SystemSettingsSchema = new mongoose.Schema({
     },
     appName: {
         type: String,
-        default: 'QR Insight'
+        default: 'HumanTek QR Studio'
     },
     updatedBy: {
         type: mongoose.Schema.Types.ObjectId,

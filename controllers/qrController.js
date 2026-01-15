@@ -19,7 +19,7 @@ const CACHE_DURATION = 3600000; // 1 hour
 
 // Convert country code to name using i18n-iso-countries
 const codeToCountryName = (code) => {
-    if (!code) return '';
+    if (!code) return ''; 
 
     const c = String(code).toUpperCase();
 
